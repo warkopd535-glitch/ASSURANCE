@@ -1154,7 +1154,19 @@ bot.on('message', async (msg) => {
         confirmMsg += `<b>Incident:</b> ${parsed.incidentNo}\n`;
         confirmMsg += `<b>Close:</b> ${parsed.closeDesc}\n`;
         if (orderClosed) confirmMsg += `<b>Status ORDER:</b> ✅ Auto-CLOSE | <b>KAWAL TTR:</b> ${kawalTTR}\n`;
-     
+        confirmMsg += `<b>Material:</b>\n`;
+        confirmMsg += `  • Dropcore: ${parsed.dropcore || '-'}\n`;
+        confirmMsg += `  • Patchcord: ${parsed.patchcord || '-'}\n`;
+        confirmMsg += `  • SOC: ${parsed.soc || '-'}\n`;
+        confirmMsg += `  • PSLAVE: ${parsed.pslave || '-'}\n`;
+        confirmMsg += `  • PASSIVE 1/8: ${parsed.passive1_8 || '-'}\n`;
+        confirmMsg += `  • PASSIVE 1/4: ${parsed.passive1_4 || '-'}\n`;
+        confirmMsg += `  • Pigtail: ${parsed.pigtail || '-'}\n`;
+        confirmMsg += `  • Adaptor: ${parsed.adaptor || '-'}\n`;
+        confirmMsg += `  • Roset: ${parsed.roset || '-'}\n`;
+        confirmMsg += `  • RJ 45: ${parsed.rj45 || '-'}\n`;
+        confirmMsg += `  • LAN: ${parsed.lan || '-'}`;
+
         return sendTelegram(chatId, confirmMsg, { reply_to_message_id: msgId });
       } catch (err) {
         console.error('❌ /INPUT Error:', err.message);
@@ -1324,14 +1336,14 @@ bot.on('message', async (msg) => {
         const { teams } = prodData;
         const now = new Date();
         const todayStr = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' });
-        let grandClosed = 0, grandOpen = 0, grandGaul = 0;
+        let grandClosed = 0, grandOpen = 0;
         const teamStats = [];
         for (const [name, t] of Object.entries(teams)) {
           if (name === 'UNKNOWN') continue;
           const closed = t.reguler.closed.length + t.unspec.closed.length + t.sqm.closed.length + t.manual.closed.length;
           const open = t.reguler.open.length + t.unspec.open.length + t.sqm.open.length;
-          grandClosed += closed; grandOpen += open; grandGaul += t.gaul.closed.length;
-          teamStats.push({ name, closed, open, t });
+          grandClosed += closed; grandOpen += open;
+          teamStats.push({ name, closed, open, reg: t.reguler.closed.length, uns: t.unspec.closed.length, sqm: t.sqm.closed.length, man: t.manual.closed.length });
         }
         teamStats.sort((a, b) => b.closed - a.closed);
         const medal = ['🥇', '🥈', '🥉'];
@@ -1345,12 +1357,12 @@ bot.on('message', async (msg) => {
           teamStats.forEach((ts, i) => {
             const icon = i < 3 ? medal[i] : '🔸';
             response += `${icon} <b>${ts.name}</b>: ${ts.closed} closed\n`;
-            response += `   📋 REG:${ts.t.reguler.closed.length} ❓ UNS:${ts.t.unspec.closed.length} 📍 SQM:${ts.t.sqm.closed.length} 🛠 MAN:${ts.t.manual.closed.length}\n`;
-            if (ts.t.gaul.closed.length > 0) response += `   🔄 GAUL: ${ts.t.gaul.closed.length} detected\n`;
-            response += '\n';
+            response += `    REGULER : ${ts.reg}\n`;
+            response += `    UNSPEC : ${ts.uns}\n`;
+            response += `    SQM : ${ts.sqm}\n`;
+            response += `    MANUAL : ${ts.man}\n\n`;
           });
           response += `📋 <b>Total: ${grandClosed} closed | ${grandOpen} open</b>\n`;
-          if (grandGaul > 0) response += `🔄 GAUL: ${grandGaul} detected\n`;
         }
         response += `╚══════════════════════════════════╝`;
         return sendTelegram(chatId, response, { reply_to_message_id: msgId });
@@ -1643,26 +1655,30 @@ bot.on('message', async (msg) => {
         }
 
         const sortedMonths = Object.keys(monthData).map(Number).sort((a, b) => a - b);
-        let header = isAdmin ? 'DETAIL LAPORAN GANGGUAN MANUAL' : `LAPORAN GANGGUAN MANUAL - @${username}`;
-        let response = `📋 <b>${header}</b>\n📅 Tahun ${today.year}\n\n`;
+        let header = isAdmin ? 'REKAP MANUAL GGN' : `REKAP MANUAL - @${username}`;
+        let response = `╔══════════════════════════════════╗\n`;
+        response += `║  📋 <b>${header}</b>\n`;
+        response += `║  📅 Tahun ${today.year}\n`;
+        response += `╠══════════════════════════════════╣\n\n`;
 
         if (sortedMonths.length === 0) {
-          response += '<i>Belum ada data</i>';
+          response += '<i>Belum ada data</i>\n';
         } else {
           sortedMonths.forEach(month => {
             const items = monthData[month];
             response += `📅 <b>${bulanNames[month].toUpperCase()}</b> [${items.length} TIKET]\n`;
             items.forEach(item => {
               if (isAdmin) {
-                response += `  ${item.tanggal} | ${item.serviceNo} | ${item.teknisi}\n`;
+                response += `├─ ${item.tanggal} | ${item.serviceNo} | ${item.teknisi}\n`;
               } else {
-                response += `  ${item.tanggal} | ${item.serviceNo}\n`;
+                response += `├─ ${item.tanggal} | ${item.serviceNo}\n`;
               }
             });
             response += '\n';
           });
-          response += `📋 <b>Grand Total: ${grandTotal} tiket</b>`;
+          response += `📋 <b>Grand Total: ${grandTotal} tiket</b>\n`;
         }
+        response += `╚══════════════════════════════════╝`;
 
         return sendTelegram(chatId, response, { reply_to_message_id: msgId });
       } catch (err) {
@@ -1858,25 +1874,29 @@ bot.on('message', async (msg) => {
         }
 
         const sortedMonths = Object.keys(monthData).map(Number).sort((a, b) => a - b);
-        let response = `📋 <b>DETAIL LAPORAN SQM SA SIGLI</b>\n📅 Tahun ${today.year}\n\n`;
+        let response = `╔══════════════════════════════════╗\n`;
+        response += `║  📋 <b>REKAP SQM SA SIGLI</b>\n`;
+        response += `║  📅 Tahun ${today.year}\n`;
+        response += `╠══════════════════════════════════╣\n\n`;
 
         if (sortedMonths.length === 0) {
-          response += '<i>Belum ada data</i>';
+          response += '<i>Belum ada data</i>\n';
         } else {
           sortedMonths.forEach(month => {
             const items = monthData[month];
             response += `📅 <b>${bulanNames[month].toUpperCase()}</b> [${items.length} TIKET]\n`;
             items.forEach(item => {
               if (isAdmin) {
-                response += `  ${item.tanggal} | ${item.incident} | ${item.teknisi}\n`;
+                response += `├─ ${item.tanggal} | ${item.incident} | ${item.teknisi}\n`;
               } else {
-                response += `  ${item.tanggal} | ${item.incident}\n`;
+                response += `├─ ${item.tanggal} | ${item.incident}\n`;
               }
             });
             response += '\n';
           });
-          response += `📋 <b>Grand Total: ${grandTotal} tiket</b>`;
+          response += `📋 <b>Grand Total: ${grandTotal} tiket</b>\n`;
         }
+        response += `╚══════════════════════════════════╝`;
 
         return sendTelegram(chatId, response, { reply_to_message_id: msgId });
       } catch (err) {
@@ -2068,23 +2088,27 @@ bot.on('message', async (msg) => {
         }
 
         const sortedMonths = Object.keys(monthData).map(Number).sort((a, b) => a - b);
-        let header = isAdmin ? 'DETAIL LAPORAN UNSPEC' : `LAPORAN UNSPEC - @${username}`;
-        let response = `📋 <b>${header}</b>\n📅 Tahun ${today.year}\n\n`;
+        let header = isAdmin ? 'REKAP UNSPEC' : `REKAP UNSPEC - @${username}`;
+        let response = `╔══════════════════════════════════╗\n`;
+        response += `║  📋 <b>${header}</b>\n`;
+        response += `║  📅 Tahun ${today.year}\n`;
+        response += `╠══════════════════════════════════╣\n\n`;
 
         if (sortedMonths.length === 0) {
-          response += '<i>Belum ada data</i>';
+          response += '<i>Belum ada data</i>\n';
         } else {
           sortedMonths.forEach(month => {
             const items = monthData[month];
             response += `📅 <b>${bulanNames[month].toUpperCase()}</b> [${items.length} TIKET]\n`;
             items.forEach(item => {
-              if (isAdmin) response += `  ${item.tanggal} | ${item.serviceNo} | ${item.teknisi}\n`;
-              else response += `  ${item.tanggal} | ${item.serviceNo}\n`;
+              if (isAdmin) response += `├─ ${item.tanggal} | ${item.serviceNo} | ${item.teknisi}\n`;
+              else response += `├─ ${item.tanggal} | ${item.serviceNo}\n`;
             });
             response += '\n';
           });
-          response += `📋 <b>Grand Total: ${grandTotal} tiket</b>`;
+          response += `📋 <b>Grand Total: ${grandTotal} tiket</b>\n`;
         }
+        response += `╚══════════════════════════════════╝`;
 
         return sendTelegram(chatId, response, { reply_to_message_id: msgId });
       } catch (err) {
@@ -2126,7 +2150,7 @@ bot.on('message', async (msg) => {
         response += `╠══════════════════════════════════╣\n\n`;
 
         const teams = prodData.teams;
-        const sortedTeams = Object.keys(teams).sort((a, b) => {
+        const sortedTeams = Object.keys(teams).filter(n => n !== 'UNKNOWN').sort((a, b) => {
           const totalA = teams[a].reguler.closed.length + teams[a].unspec.closed.length + teams[a].sqm.closed.length + teams[a].manual.closed.length + (teams[a].gaul ? teams[a].gaul.closed.length : 0);
           const totalB = teams[b].reguler.closed.length + teams[b].unspec.closed.length + teams[b].sqm.closed.length + teams[b].manual.closed.length + (teams[b].gaul ? teams[b].gaul.closed.length : 0);
           return totalB - totalA;
