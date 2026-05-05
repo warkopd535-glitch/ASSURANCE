@@ -458,6 +458,24 @@ function getTeamDisplayName(sektor) {
   return `TEAM ${sektor.toUpperCase()}`;
 }
 
+// === HELPER: Shorten teknisi name ===
+function shortTeknisi(name) {
+  if (!name) return '-';
+  return name.split(/\s*&\s*/).map(n => {
+    n = n.replace('@', '').trim();
+    // Remove numeric suffix (e.g. FH_demna_16060971 -> FH_demna)
+    return n.replace(/_?\d{5,}.*$/, '');
+  }).join(' & ');
+}
+
+// === HELPER: Short date format ===
+function shortDate(dateStr) {
+  if (!dateStr) return '-';
+  const d = parseIndonesianDate(dateStr);
+  if (!d) return dateStr.substring(0, 10);
+  return String(d.day).padStart(2,'0') + '/' + String(d.month).padStart(2,'0');
+}
+
 // === HELPER: Build progress bar ===
 function buildProgressBar(completed, total, width = 10) {
   if (total === 0) return '░'.repeat(width) + ' 0%';
@@ -1415,7 +1433,11 @@ bot.on('message', async (msg) => {
         const total = entries.reduce((sum, [_, c]) => sum + c, 0);
 
         const medal = ['🥇', '🥈', '🥉'];
-        let response = `━━━━━━━━━━━━━━━━━━━━━━\n📊 <b>REKAP CLOSE - BULAN INI</b>\n📅 ${bulanStr}\n━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+        let response = `╔══════════════════════════════════╗\n`;
+        response += `║  📊 <b>REKAP CLOSE - BULAN INI</b>\n`;
+        response += `║  📅 ${bulanStr}\n`;
+        response += `╠══════════════════════════════════╣\n\n`;
+        response += ``;
         if (entries.length === 0) {
           response += '<i>Belum ada data bulan ini</i>';
         } else {
@@ -1478,7 +1500,10 @@ bot.on('message', async (msg) => {
         }
 
         const medal = ['🥇', '🥈', '🥉'];
-        let response = `━━━━━━━━━━━━━━━━━━━━━━\n📊 <b>REKAP CLOSE - TAHUN ${today.year}</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+        let response = `╔══════════════════════════════════╗\n`;
+        response += `║  📊 <b>REKAP CLOSE - TAHUN ${today.year}</b>\n`;
+        response += `╠══════════════════════════════════╣\n\n`;
+        response += ``;
 
         const sortedMonths = Object.keys(monthData).map(Number).sort((a, b) => a - b);
         if (sortedMonths.length === 0) {
@@ -1490,7 +1515,7 @@ bot.on('message', async (msg) => {
             response += `📅 <b>${bulanNames[month]} ${today.year}</b> [${monthTotal} tickets]\n`;
             entries.forEach(([tek, c], i) => {
               const icon = i < 3 ? medal[i] : '🔸';
-              response += `  ${icon} ${tek} : ${c}\n`;
+              response += `├─ ${icon} ${shortTeknisi(tek)} : ${c}\n`;
             });
             response += '\n';
           });
@@ -1551,7 +1576,10 @@ bot.on('message', async (msg) => {
         const total = entries.reduce((sum, [_, c]) => sum + c, 0);
 
         const medal = ['🥇', '🥈', '🥉'];
-        let response = `━━━━━━━━━━━━━━━━━━━━━━\n📊 <b>REKAP CLOSE - ${bulanNames[targetMonth]} ${today.year}</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+        let response = `╔══════════════════════════════════╗\n`;
+        response += `║  📊 <b>REKAP CLOSE - ${bulanNames[targetMonth]} ${today.year}</b>\n`;
+        response += `╠══════════════════════════════════╣\n\n`;
+        response += ``;
         if (entries.length === 0) {
           response += `<i>Belum ada data ${bulanNames[targetMonth].toLowerCase()}</i>`;
         } else {
@@ -2011,14 +2039,23 @@ bot.on('message', async (msg) => {
         try {
           const unspecData = await getSheetData(UNSPEC_SHEET, false);
           for (let i = 1; i < unspecData.length; i++) {
-            const existingSN = (unspecData[i][7] || '').trim(); // H = Service No
-            const existingStatus = (unspecData[i][9] || '').toUpperCase().trim(); // J = Status
+            const existingSN = (unspecData[i][7] || '').trim();
+            const existingStatus = (unspecData[i][9] || '').toUpperCase().trim();
             if (existingSN === serviceNo && existingStatus === 'OPEN') {
               await updateSheetCell(UNSPEC_SHEET, `J${i + 1}`, 'CLOSE');
               unspecClosed = true;
               console.log(`✅ Auto-close UNSPEC: ${serviceNo} row ${i + 1}`);
               break;
             }
+          }
+
+          // Jika Service No belum ada di UNSPEC → buat baris baru
+          if (!unspecClosed) {
+            const teknisiName = teknisi || `@${username}`;
+            const newRow = [tanggal, '', teknisiName, '', wz, '', '', serviceNo, '', 'CLOSE'];
+            await withTimeout(appendSheetData(UNSPEC_SHEET, newRow), 10000);
+            unspecClosed = true;
+            console.log(`✅ UNSPEC new row created + CLOSE: ${serviceNo}`);
           }
         } catch (closeErr) {
           console.error('⚠️ UNSPEC close error:', closeErr.message);
@@ -2045,8 +2082,7 @@ bot.on('message', async (msg) => {
         confirmMsg += `📍 Workzone: ${wz}\n`;
         confirmMsg += `📞 Service No: ${serviceNo}\n`;
         confirmMsg += `📝 Close: ${closeDesc}\n`;
-        if (unspecClosed) confirmMsg += `📊 Status UNSPEC: ✅ Auto-CLOSE`;
-        else confirmMsg += `⚠️ Service No tidak ditemukan di sheet UNSPEC`;
+        confirmMsg += `📊 Status UNSPEC: ✅ Auto-CLOSE`;
 
         return sendTelegram(chatId, confirmMsg, { reply_to_message_id: msgId });
       } catch (err) {
@@ -2055,7 +2091,6 @@ bot.on('message', async (msg) => {
       }
     }
 
-    // ============================================================
     // /REKAP_UNSPEC - Rekap UNSPEC per bulan
     // ============================================================
     else if (/^\/REKAP_UNSPEC\b/i.test(text)) {
