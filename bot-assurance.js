@@ -491,7 +491,7 @@ function resolveTeamName(workzone, mappings, teamConfig) {
     const usernames = team.split(/\s*&\s*/).map(u => u.replace('@', '').trim().toLowerCase());
     for (const u of usernames) {
       const sektor = teamConfig.get(u);
-      if (sektor && sektor !== 'ALL' && sektor !== 'LTM') return getTeamDisplayName(sektor);
+      if (sektor && sektor !== 'ALL') return getTeamDisplayName(sektor);
     }
   }
   return workzone ? `TEAM ${workzone.toUpperCase()}` : 'UNKNOWN';
@@ -507,6 +507,9 @@ function resolveTeamByTeknisi(teknisiStr, teamConfig) {
     'fh_rayyan': 'BNN', 'fh_mhdfauzan': 'BNN',
     'fh_aqil': 'MRU', 'fh_rijal': 'MRU',
     'paman_sgi': 'MTC', 'fh_imam': 'MTC',
+    'fh_ltm_ilham': 'LTM', 'fh_ltm_rozasafrian': 'LTM',
+    'fh_syahrur_ltm': 'LTM', 'fh_mustaqim_ltm': 'LTM',
+    'aldesgi': 'LTM',
   };
   
   const cleaned = teknisiStr.replace(/@/g, '').toLowerCase();
@@ -520,12 +523,12 @@ function resolveTeamByTeknisi(teknisiStr, teamConfig) {
   const usernames = teknisiStr.split(/[&,]/).map(u => u.replace('@', '').trim().toLowerCase());
   for (const u of usernames) {
     const sektor = teamConfig.get(u);
-    if (sektor && sektor !== 'ALL' && sektor !== 'LTM') return getTeamDisplayName(sektor);
+    if (sektor && sektor !== 'ALL') return getTeamDisplayName(sektor);
   }
   for (const u of usernames) {
     if (!u) continue;
     for (const [key, sektor] of teamConfig.entries()) {
-      if (sektor && sektor !== 'ALL' && sektor !== 'LTM') {
+      if (sektor && sektor !== 'ALL') {
         if (u.includes(key) || key.includes(u)) return getTeamDisplayName(sektor);
       }
     }
@@ -608,9 +611,9 @@ async function getProductivityData(dateFilterFn) {
       ensureTeam(teamName);
 
       if (closedIncidents.has(incident.toUpperCase())) {
-        result[teamName].reguler.closed.push({ incident, custType, ttr: ttrStr });
+        result[teamName].reguler.closed.push({ incident, teknisi, custType, ttr: ttrStr });
       } else if (status === 'OPEN') {
-        result[teamName].reguler.open.push({ incident, custType, ttr: ttrStr });
+        result[teamName].reguler.open.push({ incident, teknisi, custType, ttr: ttrStr });
       }
     }
   }
@@ -629,9 +632,9 @@ async function getProductivityData(dateFilterFn) {
       ensureTeam(teamName);
 
       if (status === 'CLOSE' && d && dateFilterFn(d)) {
-        result[teamName].unspec.closed.push({ serviceNo, deviceName });
+        result[teamName].unspec.closed.push({ serviceNo, teknisi, deviceName });
       } else if (status === 'OPEN') {
-        result[teamName].unspec.open.push({ serviceNo, deviceName });
+        result[teamName].unspec.open.push({ serviceNo, teknisi, deviceName });
       }
     }
   }
@@ -649,9 +652,9 @@ async function getProductivityData(dateFilterFn) {
       ensureTeam(teamName);
 
       if (status === 'CLOSE' && d && dateFilterFn(d)) {
-        result[teamName].sqm.closed.push({ incident });
+        result[teamName].sqm.closed.push({ incident, teknisi });
       } else if (status === 'OPEN') {
-        result[teamName].sqm.open.push({ incident });
+        result[teamName].sqm.open.push({ incident, teknisi });
       }
     }
   }
@@ -667,7 +670,7 @@ async function getProductivityData(dateFilterFn) {
 
       const teamName = resolveTeamByTeknisi(teknisi, teamConfig);
       ensureTeam(teamName);
-      result[teamName].manual.closed.push({ serviceNo, tanggal });
+      result[teamName].manual.closed.push({ serviceNo, teknisi, tanggal });
     }
   }
 
