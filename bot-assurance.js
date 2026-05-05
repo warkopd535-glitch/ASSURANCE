@@ -2051,51 +2051,34 @@ bot.on('message', async (msg) => {
 /INPUT - Input assurance (auto-close ORDER)
 /SQM - Input SQM (auto-close SQM SA SIGLI)
 /MANUAL - Input gangguan manual
+/unspec - Close tiket UNSPEC
 
 <b>📋 SQM:</b>
-/TICKET_SQM - Lihat & Pick Up tiket SQM Anda
+/TICKET_SQM - Lihat & Pick Up tiket SQM
+
+<b>📊 PRODUKTIVITAS:</b>
+/produktivitas_hari - Produktivitas team
+/rekap_piket - Performa piket
 
 <b>📊 MONITORING (ADMIN):</b>
-/sisa_ticket - Ticket OPEN ORDER ASSURANCE
+/sisa_ticket - Ticket OPEN
 /cek_ttr - Cek TTR warning & expired
 /material_used - Total material
 
-<b>📈 REKAP (ADMIN):</b>
-/rekap_hari - Rekap hari ini
-/rekap_bulan - Rekap bulan ini
+<b>📈 REKAP:</b>
+/rekap_hari | /rekap_bulan | /rekap_tahun
 /REKAP_JANUARI s/d /REKAP_DESEMBER
-/rekap_tahun - Rekap tahun (per bulan)
-/REKAP_MANUAL - Rekap gangguan manual
-/REKAP_SQM - Rekap SQM SA SIGLI
+/REKAP_MANUAL | /REKAP_SQM | /REKAP_UNSPEC
 
-<b>📋 FORMAT /INPUT & /SQM:</b>
-/INPUT INC47052822
-CLOSE: deskripsi perbaikan
-DROPCORE: 0
-PATCHCORD: 0
-SOC: 0
-PSLAVE: 2
-PASSIVE 1/8: 0
-PASSIVE 1/4: 0
-PIGTAIL: 0
-ADAPTOR: 0
-ROSET: 0
-RJ 45: 0
-LAN: 0
-
-<b>📋 FORMAT /MANUAL:</b>
-/MANUAL
+<b>📋 FORMAT /MANUAL & /unspec:</b>
 CLOSE: deskripsi perbaikan
 SERVICE NO: 111149103305
 WORKZONE: SLG
 
 <b>⚙️ FITUR OTOMATIS:</b>
-• Auto-fill teknisi berdasarkan workzone
-• TTR monitoring & alert ke group
-• Auto-close status saat /INPUT
-• Deteksi gangguan berulang (GAUL)
-• Auto-post sisa ticket (1 jam)`;
-
+• Auto-fill teknisi & TTR monitoring
+• Auto-close & deteksi GAUL
+• Weekday=TEAM | Weekend=PIKET`;
         return sendTelegram(chatId, helpMsg, { reply_to_message_id: msgId });
       } catch (err) {
         console.error('❌ /help Error:', err.message);
