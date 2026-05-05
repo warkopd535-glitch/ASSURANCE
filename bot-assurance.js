@@ -1346,196 +1346,248 @@ bot.on('message', async (msg) => {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
         if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
-
         const isAdmin = authResult.role === 'ADMIN';
         const today = getTodayJakarta();
         const dateFilter = d => d.day === today.day && d.month === today.month && d.year === today.year;
         const prodData = await withTimeout(getProductivityData(dateFilter), 15000);
         const { teams } = prodData;
-        const now = new Date();
-        const todayStr = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' });
-        let grandClosed = 0, grandOpen = 0;
-        const teamStats = [];
-        for (const [name, t] of Object.entries(teams)) {
-          if (name === 'UNKNOWN') continue;
-          const closed = t.reguler.closed.length + t.unspec.closed.length + t.sqm.closed.length + t.manual.closed.length;
-          const open = t.reguler.open.length + t.unspec.open.length + t.sqm.open.length;
-          grandClosed += closed; grandOpen += open;
-          teamStats.push({ name, closed, open, reg: t.reguler.closed.length, uns: t.unspec.closed.length, sqm: t.sqm.closed.length, man: t.manual.closed.length });
-        }
-        teamStats.sort((a, b) => b.closed - a.closed);
-        const medal = ['🥇', '🥈', '🥉'];
-        let response = `╔══════════════════════════════════╗\n`;
-        response += `║  📊 <b>REKAP CLOSE - HARI INI</b>\n`;
-        response += `║  📅 ${todayStr}\n`;
-        response += `╠══════════════════════════════════╣\n\n`;
-        if (teamStats.length === 0) {
-          response += '<i>Belum ada data hari ini</i>\n';
-        } else {
+        const todayStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' });
+
+        if (isAdmin) {
+          // ADMIN: per team with tag teknisi
+          let grandClosed = 0, grandOpen = 0;
+          const teamStats = [];
+          for (const [name, t] of Object.entries(teams)) {
+            if (name === 'UNKNOWN') continue;
+            const reg = t.reguler.closed.length, uns = t.unspec.closed.length, sqm = t.sqm.closed.length, man = t.manual.closed.length;
+            const closed = reg + uns + sqm + man;
+            const open = t.reguler.open.length + t.unspec.open.length + t.sqm.open.length;
+            grandClosed += closed; grandOpen += open;
+            // Count per teknisi
+            const tekCount = {};
+            const allTix = [...t.reguler.closed, ...t.unspec.closed, ...t.sqm.closed, ...t.manual.closed];
+            allTix.forEach(tk => {
+              const tek = tk.teknisi || tk.tanggal || '-';
+              const short = shortTeknisi(tek);
+              tekCount[short] = (tekCount[short] || 0) + 1;
+            });
+            teamStats.push({ name, closed, open, reg, uns, sqm, man, tekCount });
+          }
+          teamStats.sort((a, b) => b.closed - a.closed);
+          const medal = ['🥇', '🥈', '🥉'];
+          let response = `╔══════════════════════════════════╗\n`;
+          response += `║  📊 <b>REKAP CLOSE - HARI INI</b>\n`;
+          response += `║  📅 ${todayStr}\n`;
+          response += `╠══════════════════════════════════╣\n\n`;
           teamStats.forEach((ts, i) => {
             const icon = i < 3 ? medal[i] : '🔸';
             response += `${icon} <b>${ts.name}</b>: ${ts.closed} closed\n`;
-            response += `    REGULER : ${ts.reg}\n`;
-            response += `    UNSPEC : ${ts.uns}\n`;
-            response += `    SQM : ${ts.sqm}\n`;
-            response += `    MANUAL : ${ts.man}\n\n`;
+            response += `    REG: ${ts.reg} | UNS: ${ts.uns} | SQM: ${ts.sqm} | MAN: ${ts.man}\n`;
+            const tekEntries = Object.entries(ts.tekCount).sort((a,b) => b[1]-a[1]);
+            if (tekEntries.length > 0) {
+              response += `    👷 ${tekEntries.map(([t,c]) => `@${t} (${c})`).join(' ')}\n`;
+            }
+            response += '\n';
           });
           response += `📋 <b>Total: ${grandClosed} closed | ${grandOpen} open</b>\n`;
+          response += `╚══════════════════════════════════╝`;
+          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        } else {
+          // USER: personal data
+          let userReg = 0, userUns = 0, userSqm = 0, userMan = 0;
+          const userRegList = [];
+          for (const [name, t] of Object.entries(teams)) {
+            t.reguler.closed.forEach(tk => { if ((tk.teknisi||'').toLowerCase().includes(username.toLowerCase())) { userReg++; userRegList.push(tk.incident); } });
+            t.unspec.closed.forEach(tk => { if ((tk.teknisi||tk.serviceNo||'').toLowerCase().includes(username.toLowerCase())) userUns++; });
+            t.sqm.closed.forEach(tk => { if ((tk.teknisi||'').toLowerCase().includes(username.toLowerCase())) userSqm++; });
+            t.manual.closed.forEach(tk => { if ((tk.teknisi||tk.tanggal||'').toLowerCase().includes(username.toLowerCase())) userMan++; });
+          }
+          const total = userReg + userUns + userSqm + userMan;
+          let response = `╔══════════════════════════════════╗\n`;
+          response += `║  📊 <b>REKAP CLOSE - HARI INI</b>\n`;
+          response += `║  📅 ${todayStr} | @${username}\n`;
+          response += `╠══════════════════════════════════╣\n\n`;
+          response += `📋 REGULER : ${userReg} closed\n`;
+          userRegList.forEach(inc => { response += `├─ ✅ ${inc}\n`; });
+          response += `📋 UNSPEC  : ${userUns}\n`;
+          response += `📋 SQM     : ${userSqm}\n`;
+          response += `📋 MANUAL  : ${userMan}\n\n`;
+          response += `📋 <b>Total: ${total} closed</b>\n`;
+          response += `╚══════════════════════════════════╝`;
+          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
         }
-        response += `╚══════════════════════════════════╝`;
-        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
       } catch (err) {
         console.error('❌ /rekap_hari Error:', err.message);
         return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
       }
     }
 
-    // ============================================================
     // /rekap_bulan - Rekap close per teknisi BULAN INI
     // ============================================================
     else if (/^\/rekap_bulan\b/i.test(text)) {
       try {
-        const authResult = await checkAuthorization(username, ['ADMIN']);
+        const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
         if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
-
-        const data = await withTimeout(getSheetData(ASSURANCE_SHEET), 10000);
-        const orderData = await withTimeout(getSheetData(ORDER_ASSURANCE_SHEET), 10000);
+        const isAdmin = authResult.role === 'ADMIN';
         const today = getTodayJakarta();
-        let map = {};
-        let incidents = [];
+        const dateFilter = d => d.month === today.month && d.year === today.year;
+        const prodData = await withTimeout(getProductivityData(dateFilter), 15000);
+        const { teams } = prodData;
+        const bulanStr = new Date().toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' });
 
-        for (let i = 1; i < data.length; i++) {
-          const tanggal = (data[i][0] || '').trim();
-          const teknisi = (data[i][14] || '-').trim();
-          const incident = (data[i][1] || '').trim();
-          const d = parseIndonesianDate(tanggal);
-          if (!d) continue;
-          if (d.month === today.month && d.year === today.year) {
-            map[teknisi] = (map[teknisi] || 0) + 1;
-            if (incident) incidents.push(incident.toUpperCase());
+        if (isAdmin) {
+          let grandClosed = 0;
+          const teamStats = [];
+          for (const [name, t] of Object.entries(teams)) {
+            if (name === 'UNKNOWN') continue;
+            const reg = t.reguler.closed.length, uns = t.unspec.closed.length, sqm = t.sqm.closed.length, man = t.manual.closed.length;
+            const closed = reg + uns + sqm + man;
+            grandClosed += closed;
+            const tekCount = {};
+            [...t.reguler.closed, ...t.unspec.closed, ...t.sqm.closed, ...t.manual.closed].forEach(tk => {
+              const s = shortTeknisi(tk.teknisi || tk.tanggal || '-');
+              tekCount[s] = (tekCount[s] || 0) + 1;
+            });
+            teamStats.push({ name, closed, reg, uns, sqm, man, tekCount });
           }
-        }
-
-        // Hitung COMPLY/NOT COMPLY
-        let comply = 0, notComply = 0;
-        for (let i = 1; i < orderData.length; i++) {
-          const inc = (orderData[i][1] || '').trim().toUpperCase();
-          const kawal = (orderData[i][17] || '').trim().toUpperCase();
-          if (incidents.includes(inc)) {
-            if (kawal === 'COMPLY') comply++;
-            else if (kawal === 'NOT COMPLY') notComply++;
-          }
-        }
-
-        const now = new Date();
-        const bulanStr = now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' });
-        const entries = Object.entries(map).sort((a, b) => b[1] - a[1]);
-        const total = entries.reduce((sum, [_, c]) => sum + c, 0);
-
-        const medal = ['🥇', '🥈', '🥉'];
-        let response = `╔══════════════════════════════════╗\n`;
-        response += `║  📊 <b>REKAP CLOSE - BULAN INI</b>\n`;
-        response += `║  📅 ${bulanStr}\n`;
-        response += `╠══════════════════════════════════╣\n\n`;
-        response += ``;
-        if (entries.length === 0) {
-          response += '<i>Belum ada data bulan ini</i>';
-        } else {
-          entries.forEach(([tek, c], i) => {
+          teamStats.sort((a, b) => b.closed - a.closed);
+          const medal = ['🥇', '🥈', '🥉'];
+          let response = `╔══════════════════════════════════╗\n`;
+          response += `║  📊 <b>REKAP CLOSE - BULAN INI</b>\n`;
+          response += `║  📅 ${bulanStr}\n`;
+          response += `╠══════════════════════════════════╣\n\n`;
+          teamStats.forEach((ts, i) => {
             const icon = i < 3 ? medal[i] : '🔸';
-            response += `${icon} <b>${tek}</b> : ${c} tickets\n`;
+            response += `${icon} <b>${ts.name}</b> : ${ts.closed} closed\n`;
+            response += `    REG: ${ts.reg} | UNS: ${ts.uns} | SQM: ${ts.sqm} | MAN: ${ts.man}\n`;
+            const tekEntries = Object.entries(ts.tekCount).sort((a,b) => b[1]-a[1]);
+            if (tekEntries.length > 0) {
+              response += `    👷 ${tekEntries.map(([t,c]) => `@${t} (${c})`).join(' ')}\n`;
+            }
+            response += '\n';
           });
-          response += `\n📋 <b>Total: ${total} tickets</b>\n`;
-          response += `✅ COMPLY: ${comply} | ❌ NOT COMPLY: ${notComply}`;
+          response += `📋 <b>Total: ${grandClosed} closed</b>\n`;
+          response += `╚══════════════════════════════════╝`;
+          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        } else {
+          // USER view
+          let userReg = 0, userUns = 0, userSqm = 0, userMan = 0;
+          for (const [name, t] of Object.entries(teams)) {
+            t.reguler.closed.forEach(tk => { if ((tk.teknisi||'').toLowerCase().includes(username.toLowerCase())) userReg++; });
+            t.unspec.closed.forEach(tk => { if ((tk.teknisi||tk.serviceNo||'').toLowerCase().includes(username.toLowerCase())) userUns++; });
+            t.sqm.closed.forEach(tk => { if ((tk.teknisi||'').toLowerCase().includes(username.toLowerCase())) userSqm++; });
+            t.manual.closed.forEach(tk => { if ((tk.teknisi||tk.tanggal||'').toLowerCase().includes(username.toLowerCase())) userMan++; });
+          }
+          const total = userReg + userUns + userSqm + userMan;
+          let response = `╔══════════════════════════════════╗\n`;
+          response += `║  📊 <b>REKAP CLOSE - BULAN INI</b>\n`;
+          response += `║  📅 ${bulanStr} | @${username}\n`;
+          response += `╠══════════════════════════════════╣\n\n`;
+          response += `📋 REGULER : ${userReg} closed\n`;
+          response += `📋 UNSPEC  : ${userUns} closed\n`;
+          response += `📋 SQM     : ${userSqm} closed\n`;
+          response += `📋 MANUAL  : ${userMan}\n\n`;
+          response += `📋 <b>Total: ${total} closed</b>\n`;
+          response += `╚══════════════════════════════════╝`;
+          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
         }
-
-        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
       } catch (err) {
         console.error('❌ /rekap_bulan Error:', err.message);
         return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
       }
     }
 
-    // ============================================================
     // /rekap_tahun - Rekap close per teknisi TAHUN INI
     // ============================================================
     else if (/^\/rekap_tahun\b/i.test(text)) {
       try {
-        const authResult = await checkAuthorization(username, ['ADMIN']);
+        const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
         if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
-
-        const data = await withTimeout(getSheetData(ASSURANCE_SHEET), 10000);
-        const orderData = await withTimeout(getSheetData(ORDER_ASSURANCE_SHEET), 10000);
+        const isAdmin = authResult.role === 'ADMIN';
         const today = getTodayJakarta();
-
-        // Group by month, then by teknisi
         const bulanNames = ['', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-        let monthData = {}; // { month: { teknisi: count } }
-        let allIncidents = [];
+        
+        const monthTeamData = {};
         let grandTotal = 0;
+        const userMonthData = {};
 
-        for (let i = 1; i < data.length; i++) {
-          const tanggal = (data[i][0] || '').trim();
-          const teknisi = (data[i][14] || '-').trim();
-          const incident = (data[i][1] || '').trim();
-          const d = parseIndonesianDate(tanggal);
-          if (!d) continue;
-          if (d.year === today.year) {
-            if (!monthData[d.month]) monthData[d.month] = {};
-            monthData[d.month][teknisi] = (monthData[d.month][teknisi] || 0) + 1;
-            grandTotal++;
-            if (incident) allIncidents.push(incident.toUpperCase());
-          }
+        for (let m = 1; m <= today.month; m++) {
+          const dateFilter = d => d.month === m && d.year === today.year;
+          try {
+            const prodData = await withTimeout(getProductivityData(dateFilter), 10000);
+            const { teams } = prodData;
+            let monthTotal = 0;
+            const teamList = [];
+            let userMonthTotal = 0, uReg = 0, uUns = 0, uSqm = 0, uMan = 0;
+
+            for (const [name, t] of Object.entries(teams)) {
+              if (name === 'UNKNOWN') continue;
+              const reg = t.reguler.closed.length, uns = t.unspec.closed.length, sqm = t.sqm.closed.length, man = t.manual.closed.length;
+              const closed = reg + uns + sqm + man;
+              if (closed > 0) { monthTotal += closed; teamList.push({ name, closed, reg, uns, sqm, man }); }
+              if (!isAdmin) {
+                t.reguler.closed.forEach(tk => { if ((tk.teknisi||'').toLowerCase().includes(username.toLowerCase())) { uReg++; userMonthTotal++; } });
+                t.unspec.closed.forEach(tk => { if ((tk.teknisi||tk.serviceNo||'').toLowerCase().includes(username.toLowerCase())) { uUns++; userMonthTotal++; } });
+                t.sqm.closed.forEach(tk => { if ((tk.teknisi||'').toLowerCase().includes(username.toLowerCase())) { uSqm++; userMonthTotal++; } });
+                t.manual.closed.forEach(tk => { if ((tk.teknisi||tk.tanggal||'').toLowerCase().includes(username.toLowerCase())) { uMan++; userMonthTotal++; } });
+              }
+            }
+            if (monthTotal > 0) { teamList.sort((a, b) => b.closed - a.closed); monthTeamData[m] = { total: monthTotal, teams: teamList }; grandTotal += monthTotal; }
+            if (userMonthTotal > 0) { userMonthData[m] = { total: userMonthTotal, reg: uReg, uns: uUns, sqm: uSqm, man: uMan }; }
+          } catch (e) { /* skip */ }
         }
 
-        // Hitung COMPLY/NOT COMPLY total
-        let comply = 0, notComply = 0;
-        for (let i = 1; i < orderData.length; i++) {
-          const inc = (orderData[i][1] || '').trim().toUpperCase();
-          const kawal = (orderData[i][17] || '').trim().toUpperCase();
-          if (allIncidents.includes(inc)) {
-            if (kawal === 'COMPLY') comply++;
-            else if (kawal === 'NOT COMPLY') notComply++;
-          }
-        }
-
-        const medal = ['🥇', '🥈', '🥉'];
-        let response = `╔══════════════════════════════════╗\n`;
-        response += `║  📊 <b>REKAP CLOSE - TAHUN ${today.year}</b>\n`;
-        response += `╠══════════════════════════════════╣\n\n`;
-        response += ``;
-
-        const sortedMonths = Object.keys(monthData).map(Number).sort((a, b) => a - b);
-        if (sortedMonths.length === 0) {
-          response += '<i>Belum ada data tahun ini</i>';
-        } else {
-          sortedMonths.forEach(month => {
-            const entries = Object.entries(monthData[month]).sort((a, b) => b[1] - a[1]);
-            const monthTotal = entries.reduce((sum, [_, c]) => sum + c, 0);
-            response += `📅 <b>${bulanNames[month]} ${today.year}</b> [${monthTotal} tickets]\n`;
-            entries.forEach(([tek, c], i) => {
-              const icon = i < 3 ? medal[i] : '🔸';
-              response += `├─ ${icon} ${shortTeknisi(tek)} : ${c}\n`;
+        if (isAdmin) {
+          let response = `╔══════════════════════════════════╗\n`;
+          response += `║  📊 <b>REKAP CLOSE - TAHUN ${today.year}</b>\n`;
+          response += `╠══════════════════════════════════╣\n\n`;
+          const sortedMonths = Object.keys(monthTeamData).map(Number).sort((a,b)=>a-b);
+          if (sortedMonths.length === 0) { response += '<i>Belum ada data</i>\n'; }
+          else {
+            sortedMonths.forEach(m => {
+              const md = monthTeamData[m];
+              response += `📅 <b>${bulanNames[m].toUpperCase()}</b> [${md.total} tiket]\n`;
+              md.teams.forEach(ts => {
+                response += `├─ ${ts.name} : ${ts.closed}\n`;
+                response += `│  REG: ${ts.reg} | UNS: ${ts.uns} | SQM: ${ts.sqm} | MAN: ${ts.man}\n`;
+              });
+              response += '\n';
             });
-            response += '\n';
-          });
-          response += `📋 <b>Grand Total: ${grandTotal} tickets</b>\n`;
-          response += `✅ COMPLY: ${comply} | ❌ NOT COMPLY: ${notComply}`;
+            response += `📋 <b>Grand Total: ${grandTotal} tiket</b>\n`;
+          }
+          response += `╚══════════════════════════════════╝`;
+          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        } else {
+          let userGrand = 0;
+          let response = `╔══════════════════════════════════╗\n`;
+          response += `║  📊 <b>REKAP CLOSE - TAHUN ${today.year}</b>\n`;
+          response += `║  👤 @${username}\n`;
+          response += `╠══════════════════════════════════╣\n\n`;
+          const sortedMonths = Object.keys(userMonthData).map(Number).sort((a,b)=>a-b);
+          if (sortedMonths.length === 0) { response += '<i>Belum ada data</i>\n'; }
+          else {
+            sortedMonths.forEach(m => {
+              const md = userMonthData[m];
+              userGrand += md.total;
+              response += `📅 ${bulanNames[m].toUpperCase()} : ${md.total} closed\n`;
+              response += `    REG: ${md.reg} | UNS: ${md.uns} | SQM: ${md.sqm} | MAN: ${md.man}\n\n`;
+            });
+            response += `📋 <b>Grand Total: ${userGrand} tiket</b>\n`;
+          }
+          response += `╚══════════════════════════════════╝`;
+          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
         }
-
-        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
       } catch (err) {
         console.error('❌ /rekap_tahun Error:', err.message);
         return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
       }
     }
 
-    // ============================================================
     // /REKAP_JANUARI s/d /REKAP_DESEMBER - Rekap bulan spesifik
     // ============================================================
     else if (/^\/REKAP_(JANUARI|FEBRUARI|MARET|APRIL|MEI|JUNI|JULI|AGUSTUS|SEPTEMBER|OKTOBER|NOVEMBER|DESEMBER)\b/i.test(text)) {
       try {
-        const authResult = await checkAuthorization(username, ['ADMIN']);
+        const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
         if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
 
         const bulanMatch = text.match(/^\/REKAP_(\w+)/i);
@@ -2157,7 +2209,7 @@ bot.on('message', async (msg) => {
     // ============================================================
     else if (/^\/produktivitas_hari\b/i.test(text)) {
       try {
-        const authResult = await checkAuthorization(username, ['ADMIN']);
+        const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
         if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
 
         const today = getTodayJakarta();
@@ -2222,108 +2274,7 @@ bot.on('message', async (msg) => {
     // ============================================================
     // /detail_team [name] - Detailed Team Report
     // ============================================================
-    else if (/^\/detail_team\b/i.test(text)) {
-      try {
-        const authResult = await checkAuthorization(username, ['ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
-
-        const teamArg = text.replace(/^\/detail_team\s*/i, '').trim().toUpperCase();
-        if (!teamArg) {
-          return sendTelegram(chatId, `❌ Gunakan format: /detail_team SGI\n\nTeam tersedia: SGI, BNN, MRU, MTC`, { reply_to_message_id: msgId });
-        }
-
-        const targetTeam = `TEAM ${teamArg}`;
-        const today = getTodayJakarta();
-        const dateFilter = d => d.day === today.day && d.month === today.month && d.year === today.year;
-        const prodData = await withTimeout(getProductivityData(dateFilter), 15000);
-
-        const t = prodData.teams[targetTeam];
-        if (!t) {
-          const available = Object.keys(prodData.teams).join(', ') || 'Belum ada data';
-          return sendTelegram(chatId, `❌ Team "${targetTeam}" tidak ditemukan.\n\nTeam tersedia: ${available}`, { reply_to_message_id: msgId });
-        }
-
-        const closed = t.reguler.closed.length + t.unspec.closed.length + t.sqm.closed.length + t.manual.closed.length;
-        const open = t.reguler.open.length + t.unspec.open.length + t.sqm.open.length;
-        const total = closed + open;
-
-        const dateStr = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' });
-
-        let response = `╔══════════════════════════════════════╗\n`;
-        response += `║  👷 <b>DETAIL ${targetTeam} - HARI INI</b>\n`;
-        response += `║  📅 ${dateStr}\n`;
-        response += `╠══════════════════════════════════════╣\n\n`;
-
-        response += `📊 <b>SUMMARY</b>\n`;
-        response += `├─ Total: ${total} | Completed: ${closed} (${total > 0 ? Math.round(closed / total * 100) : 0}%) | Open: ${open}\n`;
-        response += `└─ ${buildProgressBar(closed, total, 14)}\n\n`;
-
-        // REGULER
-        response += `📋 <b>REGULER</b> (${t.reguler.closed.length} selesai, ${t.reguler.open.length} open)\n`;
-        if (t.reguler.closed.length > 0) {
-          response += `├─ CLOSED:\n`;
-          t.reguler.closed.forEach(tk => { response += `│  • ${tk.incident} ✅\n`; });
-        }
-        if (t.reguler.open.length > 0) {
-          response += `└─ OPEN:\n`;
-          t.reguler.open.forEach(tk => { response += `   • ${tk.incident} | ${tk.ttr || '-'} | ${tk.custType || '-'}\n`; });
-        }
-        if (t.reguler.closed.length === 0 && t.reguler.open.length === 0) response += `└─ <i>Tidak ada data</i>\n`;
-        response += '\n';
-
-        // UNSPEC
-        response += `❓ <b>UNSPEC</b> (${t.unspec.closed.length} selesai, ${t.unspec.open.length} open)\n`;
-        if (t.unspec.closed.length > 0) {
-          response += `├─ CLOSED:\n`;
-          t.unspec.closed.forEach(tk => { response += `│  • ${tk.serviceNo || tk.deviceName} ✅\n`; });
-        }
-        if (t.unspec.open.length > 0) {
-          response += `└─ OPEN:\n`;
-          t.unspec.open.forEach(tk => { response += `   • ${tk.deviceName || tk.serviceNo} | OPEN\n`; });
-        }
-        if (t.unspec.closed.length === 0 && t.unspec.open.length === 0) response += `└─ <i>Tidak ada data</i>\n`;
-        response += '\n';
-
-        // SQM
-        response += `📍 <b>SQM SA SIGLI</b> (${t.sqm.closed.length} selesai, ${t.sqm.open.length} open)\n`;
-        if (t.sqm.closed.length > 0) {
-          response += `├─ CLOSED:\n`;
-          t.sqm.closed.forEach(tk => { response += `│  • ${tk.incident} ✅\n`; });
-        }
-        if (t.sqm.open.length > 0) {
-          response += `└─ OPEN:\n`;
-          t.sqm.open.forEach(tk => { response += `   • ${tk.incident} | OPEN\n`; });
-        }
-        if (t.sqm.closed.length === 0 && t.sqm.open.length === 0) response += `└─ <i>Tidak ada data</i>\n`;
-        response += '\n';
-
-        // MANUAL GGN
-        response += `🛠 <b>MANUAL GGN</b> (${t.manual.closed.length} selesai)\n`;
-        if (t.manual.closed.length > 0) {
-          t.manual.closed.forEach(tk => { response += `  • ${tk.serviceNo} ✅\n`; });
-        } else {
-          response += `└─ <i>Tidak ada data</i>\n`;
-        }
-
-        response += '\n';
-
-        // GAUL
-        response += `🔄 <b>GAUL</b> (${t.gaul.closed.length} detected)\n`;
-        if (t.gaul.closed.length > 0) {
-          t.gaul.closed.forEach(tk => { response += `├─ ⚠️ ${tk.incident}\n`; });
-        } else {
-          response += `└─ <i>Tidak ada data</i>\n`;
-        }
-
-        response += `\n╚══════════════════════════════════════╝`;
-        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
-      } catch (err) {
-        console.error('❌ /detail_team Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
-      }
-    }
-
-    // ============================================================
+        // ============================================================
     // /ringkasan_produk - Weekly Summary (7 hari terakhir)
     // ============================================================
     else if (/^\/ringkasan_produk\b/i.test(text)) {
@@ -2411,79 +2362,108 @@ bot.on('message', async (msg) => {
     }
 
     // ============================================================
-    // /rank_team - Team Ranking
+    // /rekap_piket - Rekap performa jadwal piket
     // ============================================================
-    else if (/^\/rank_team\b/i.test(text)) {
+    else if (/^\/rekap_piket\b/i.test(text)) {
       try {
-        const authResult = await checkAuthorization(username, ['ADMIN']);
+        const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
         if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
-
-        // Parse period: /rank_team bulan OR /rank_team (default: hari ini)
-        const periodArg = text.replace(/^\/rank_team\s*/i, '').trim().toLowerCase();
+        const isAdmin = authResult.role === 'ADMIN';
         const today = getTodayJakarta();
-        let dateFilter, periodLabel;
-
-        if (periodArg === 'bulan') {
-          dateFilter = d => d.month === today.month && d.year === today.year;
-          const bulanStr = new Date().toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' });
-          periodLabel = bulanStr;
-        } else if (periodArg === 'tahun') {
-          dateFilter = d => d.year === today.year;
-          periodLabel = `Tahun ${today.year}`;
-        } else {
-          dateFilter = d => d.day === today.day && d.month === today.month && d.year === today.year;
-          periodLabel = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' });
-        }
-
+        const bulanNames = ['', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        const masterData = await withTimeout(getSheetData(MASTER_SHEET), 10000);
+        const piketSchedule = getPiketSchedule(masterData);
+        const dateFilter = d => d.month === today.month && d.year === today.year;
         const prodData = await withTimeout(getProductivityData(dateFilter), 15000);
-        const teams = prodData.teams;
+        const { teams } = prodData;
 
-        const teamStats = [];
+        const allClosed = [];
         for (const [name, t] of Object.entries(teams)) {
-          const closed = t.reguler.closed.length + t.unspec.closed.length + t.sqm.closed.length + t.manual.closed.length;
-          const open = t.reguler.open.length + t.unspec.open.length + t.sqm.open.length;
-          const total = closed + open;
-          const gaul = t.gaul ? t.gaul.closed.length : 0;
-          teamStats.push({ name, closed, open, total, gaul, rate: total > 0 ? (closed / total * 100) : 0 });
-        }
-        teamStats.sort((a, b) => b.closed - a.closed);
-
-        const medal = ['🥇', '🥈', '🥉'];
-
-        let response = `╔══════════════════════════════════╗\n`;
-        response += `║  🏆 <b>RANKING TEAM</b>\n`;
-        response += `║  📅 ${periodLabel}\n`;
-        response += `╠══════════════════════════════════╣\n\n`;
-
-        if (teamStats.length === 0) {
-          response += '<i>Belum ada data</i>\n';
-        } else {
-          teamStats.forEach((ts, idx) => {
-            const m = idx < 3 ? medal[idx] : `${idx + 1}.`;
-            response += `${m} <b>${ts.name}</b>\n`;
-            response += `   ${buildProgressBar(ts.closed, ts.total, 12)}\n`;
-            response += `   Closed: ${ts.closed} | Open: ${ts.open} | Total: ${ts.total}\n`;
-            if (ts.gaul > 0) response += `   🔄 GAUL: ${ts.gaul} detected\n`;
-            response += '\n';
+          [...t.reguler.closed, ...t.unspec.closed, ...t.sqm.closed, ...t.manual.closed].forEach(tk => {
+            allClosed.push({ teknisi: (tk.teknisi || '').toLowerCase(), date: tk.tanggal || '' });
           });
-
-          const totalClosed = teamStats.reduce((s, t) => s + t.closed, 0);
-          const totalAll = teamStats.reduce((s, t) => s + t.total, 0);
-          const totalGaul = teamStats.reduce((s, t) => s + t.gaul, 0);
-          response += `📊 <b>Grand Total: ${totalClosed} closed / ${totalAll} total</b>\n`;
-          if (totalGaul > 0) response += `🔄 Total GAUL: ${totalGaul} detected`;
         }
 
-        response += `\n╚══════════════════════════════════╝`;
-        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        const currentPiket = piketSchedule.filter(p => {
+          const parts = p.tanggal.split('-');
+          if (parts.length === 3) { return parseInt(parts[1]) === today.month && parseInt(parts[2]) === today.year; }
+          return false;
+        });
+
+        const tekPiket = {};
+        currentPiket.forEach(p => {
+          const tek = shortTeknisi(p.teknisi);
+          if (!tekPiket[tek]) tekPiket[tek] = { days: 0, details: [], closedOnPiket: 0 };
+          tekPiket[tek].days++;
+          const parts = p.tanggal.split('-');
+          const piketDay = parseInt(parts[0]);
+          let closedCount = 0;
+          const tekLower = tek.toLowerCase().replace('@','');
+          const origLower = p.teknisi.replace('@','').toLowerCase();
+          allClosed.forEach(cl => {
+            if (cl.teknisi.includes(tekLower) || cl.teknisi.includes(origLower)) {
+              const d = parseIndonesianDate(cl.date);
+              if (d && d.day === piketDay && d.month === today.month) closedCount++;
+            }
+          });
+          tekPiket[tek].closedOnPiket += closedCount;
+          tekPiket[tek].details.push({ date: parts[0] + '/' + parts[1], sektor: p.sektor, closed: closedCount, isPast: piketDay <= today.day });
+        });
+
+        const bulanStr = bulanNames[today.month] + ' ' + today.year;
+
+        if (isAdmin) {
+          let response = `╔══════════════════════════════════╗\n`;
+          response += `║  📅 <b>REKAP PIKET - ${bulanStr.toUpperCase()}</b>\n`;
+          response += `╠══════════════════════════════════╣\n\n`;
+          const entries = Object.entries(tekPiket).sort((a,b) => b[1].closedOnPiket - a[1].closedOnPiket);
+          if (entries.length === 0) { response += '<i>Belum ada jadwal piket</i>\n'; }
+          else {
+            let totalDays = 0, totalClosed = 0;
+            entries.forEach(([tek, data]) => {
+              totalDays += data.days; totalClosed += data.closedOnPiket;
+              const rate = data.days > 0 ? (data.closedOnPiket / data.days).toFixed(1) : '0';
+              response += `👷 @${tek}\n`;
+              response += `├─ 🗓 Piket: ${data.days} hari\n`;
+              response += `├─ 📋 Closed saat piket: ${data.closedOnPiket}\n`;
+              response += `├─ ⚡ Rate: ${rate} /hari\n\n`;
+            });
+            response += `📋 <b>Total: ${totalDays} hari piket | ${totalClosed} tiket</b>\n`;
+          }
+          response += `╚══════════════════════════════════╝`;
+          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        } else {
+          let response = `╔══════════════════════════════════╗\n`;
+          response += `║  📅 <b>REKAP PIKET - ${bulanStr.toUpperCase()}</b>\n`;
+          response += `║  👤 @${username}\n`;
+          response += `╠══════════════════════════════════╣\n\n`;
+          let found = false;
+          for (const [tek, data] of Object.entries(tekPiket)) {
+            if (tek.toLowerCase().includes(username.toLowerCase()) || username.toLowerCase().includes(tek.toLowerCase())) {
+              found = true;
+              response += `🗓 Piket: ${data.days} hari\n`;
+              data.details.forEach(d => {
+                if (d.isPast) { response += `├─ ${d.date} ${d.sektor} | ${d.closed} closed ${d.closed > 0 ? '✅' : '⚠️'}\n`; }
+                else { response += `├─ ${d.date} ${d.sektor} | (belum)\n`; }
+              });
+              const pastDays = data.details.filter(d => d.isPast).length;
+              const rate = pastDays > 0 ? (data.closedOnPiket / pastDays).toFixed(1) : '0';
+              response += `\n📋 <b>Total: ${data.closedOnPiket} closed | ⚡ Rate: ${rate} /hari</b>\n`;
+              break;
+            }
+          }
+          if (!found) response += '<i>Tidak ada jadwal piket untuk Anda bulan ini</i>\n';
+          response += `╚══════════════════════════════════╝`;
+          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        }
       } catch (err) {
-        console.error('❌ /rank_team Error:', err.message);
+        console.error('❌ /rekap_piket Error:', err.message);
         return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
       }
     }
 
     // ============================================================
-    // /chatid - Get chat ID (untuk setup GROUP_CHAT_ID)
+    // /chatid - Get chat ID
     // ============================================================
     else if (/^\/chatid\b/i.test(text)) {
       return sendTelegram(chatId, `📍 <b>Chat ID:</b> <code>${chatId}</code>\n<b>Type:</b> ${msg.chat.type}`, { reply_to_message_id: msgId });
@@ -2508,12 +2488,10 @@ bot.on('message', async (msg) => {
 <b>📋 SQM:</b>
 /TICKET_SQM - Lihat & Pick Up tiket SQM
 
-<b>📊 PRODUKTIVITAS (ADMIN):</b>
+<b>📊 PRODUKTIVITAS:</b>
 /produktivitas_hari - Produktivitas team
-/detail_team SGI - Detail per team
 /ringkasan_produk - Ringkasan 7 hari
-/rank_team - Ranking team
-/rank_team bulan - Ranking bulan ini
+/rekap_piket - Performa piket
 
 <b>📊 MONITORING (ADMIN):</b>
 /sisa_ticket - Ticket OPEN
