@@ -1649,6 +1649,57 @@ bot.on('message', async (msg) => {
     }
 
     // ============================================================
+    // /unspec - Close tiket UNSPEC
+    // ============================================================
+    else if (/^\/unspec\b/i.test(text)) {
+      try {
+        const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+
+        const inputText = text.replace(/^\/unspec\s*/i, '').trim();
+        if (!inputText) {
+          return sendTelegram(chatId, `❌ Format:\n/unspec\nCLOSE: deskripsi\nSERVICE NO: 111149103305\nWORKZONE: SLG`, { reply_to_message_id: msgId });
+        }
+
+        const closeMatch = inputText.match(/CLOSE\s*:\s*(.+)/i);
+        const svcMatch = inputText.match(/SERVICE\s*NO\s*:\s*(.+)/i);
+        const wzMatch = inputText.match(/WORKZONE\s*:\s*(.+)/i);
+
+        if (!closeMatch || !svcMatch) {
+          return sendTelegram(chatId, `❌ Format:\n/unspec\nCLOSE: deskripsi\nSERVICE NO: 111149103305\nWORKZONE: SLG`, { reply_to_message_id: msgId });
+        }
+
+        const closeDesc = closeMatch[1].trim();
+        const serviceNo = svcMatch[1].trim();
+        const wz = wzMatch ? wzMatch[1].trim().toUpperCase() : '';
+
+        const tanggal = new Date().toLocaleDateString('id-ID', {
+          weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta',
+        });
+
+        const mappings = await getWorkzoneMappings();
+        const teknisi = wz ? (findMappingTeam(wz, mappings) || `@${username}`) : `@${username}`;
+
+        // Simpan ke UNSPEC: A=tanggal, B=closeDesc, C=teknisi, D-G=(skip), H=serviceNo, I=deviceName, J=status
+        const row = [tanggal, '', teknisi, '', '', '', '', serviceNo, closeDesc, 'CLOSE'];
+        await withTimeout(appendSheetData(UNSPEC_SHEET, row), 10000);
+
+        let confirmMsg = `✅ Tiket UNSPEC berhasil di-close!\n\n`;
+        confirmMsg += `📋 Detail:\n`;
+        confirmMsg += `📅 Tanggal: ${tanggal}\n`;
+        confirmMsg += `👷 Teknisi: ${teknisi}\n`;
+        confirmMsg += `📞 Service No: ${serviceNo}\n`;
+        confirmMsg += `📝 Close: ${closeDesc}\n`;
+        confirmMsg += `📊 Status: CLOSE`;
+
+        return sendTelegram(chatId, confirmMsg, { reply_to_message_id: msgId });
+      } catch (err) {
+        console.error('❌ /unspec Error:', err.message);
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+      }
+    }
+
+        // ============================================================
     // /MANUAL - Input gangguan manual ke MANUAL GGN
     // ============================================================
     else if (/^\/MANUAL\b/i.test(text)) {
@@ -1676,7 +1727,7 @@ bot.on('message', async (msg) => {
         // Get teknisi dari mapping
         const orderData = await getSheetData(ORDER_ASSURANCE_SHEET, false);
         const mappings = await getWorkzoneMappings();
-        const teknisi = findMappingTeam(wz, 'OPEN', mappings) || `@${username}`;
+        const teknisi = findMappingTeam(wz, mappings) || `@${username}`;
 
         const tanggal = new Date().toLocaleDateString('id-ID', {
           weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta',
@@ -1763,6 +1814,65 @@ bot.on('message', async (msg) => {
     }
 
     // ============================================================
+    // /REKAP_UNSPEC - Rekap UNSPEC
+    // ============================================================
+    else if (/^\/REKAP_UNSPEC\b/i.test(text)) {
+      try {
+        const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        const isAdmin = authResult.role === 'ADMIN';
+
+        const data = await withTimeout(getSheetData(UNSPEC_SHEET), 10000);
+        if (!data || data.length < 2) return sendTelegram(chatId, '<i>Tidak ada data UNSPEC</i>', { reply_to_message_id: msgId });
+
+        const today = getTodayJakarta();
+        const bulanNames = ['','Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+        let monthData = {};
+        let grandTotal = 0;
+
+        for (let i = 1; i < data.length; i++) {
+          if (!data[i]) continue;
+          const tanggal = (data[i][0] || '').trim();
+          const teknisi = (data[i][2] || '').trim();
+          const serviceNo = (data[i][7] || '').trim();
+          const status = (data[i][9] || '').toUpperCase().trim();
+          const d = parseIndonesianDate(tanggal);
+          if (!d || d.year !== today.year || status !== 'CLOSE') continue;
+          if (!isAdmin && !teknisi.toLowerCase().includes(username.toLowerCase())) continue;
+
+          if (!monthData[d.month]) monthData[d.month] = [];
+          monthData[d.month].push({ tanggal, serviceNo, teknisi });
+          grandTotal++;
+        }
+
+        const sortedMonths = Object.keys(monthData).map(Number).sort((a,b) => a-b);
+        let response = `╔══════════════════════════════════╗\n║  📊 <b>REKAP UNSPEC - TAHUN ${today.year}</b>\n╠══════════════════════════════════╣\n\n`;
+        if (sortedMonths.length === 0) {
+          response += '<i>Belum ada data</i>\n';
+        } else {
+          sortedMonths.forEach(month => {
+            const items = monthData[month];
+            response += `📅 <b>${bulanNames[month].toUpperCase()}</b> [${items.length} TIKET]\n`;
+            items.forEach(item => {
+              if (isAdmin) {
+                response += `  ${item.tanggal} | ${item.serviceNo} | ${item.teknisi}\n`;
+              } else {
+                response += `  ${item.tanggal} | ${item.serviceNo}\n`;
+              }
+            });
+            response += '\n';
+          });
+          response += `📋 <b>Grand Total: ${grandTotal} tiket</b>\n`;
+        }
+        response += `╚══════════════════════════════════╝`;
+        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+      } catch (err) {
+        console.error('❌ /REKAP_UNSPEC Error:', err.message);
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+      }
+    }
+
+        // ============================================================
     // /TICKET_SQM - Lihat & Pick Up tiket SQM
     // ============================================================
     else if (/^\/TICKET_SQM\b/i.test(text)) {
@@ -2087,7 +2197,6 @@ bot.on('message', async (msg) => {
 /TICKET_SQM - Lihat & Pick Up tiket SQM
 
 <b>📊 PRODUKTIVITAS:</b>
-/produktivitas_hari - Produktivitas team
 /rekap_piket - Performa piket
 
 <b>📊 MONITORING (ADMIN):</b>
