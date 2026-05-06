@@ -168,6 +168,7 @@ async function batchUpdateCells(sheetName, updates) {
 // === HELPER: Find next row with empty incident column ===
 function findNextEmptyRow(data, incidentColIdx) {
   for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
     if (!(data[i][incidentColIdx] || '').trim()) {
       return i + 1; // 1-based row number
     }
@@ -212,6 +213,7 @@ async function getUserRole(username) {
   try {
     const data = await getSheetData(MASTER_SHEET);
     for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
       const sheetUser = (data[i][8] || '').replace('@', '').toLowerCase().trim();
       const inputUser = (username || '').replace('@', '').toLowerCase().trim();
       const status = (data[i][10] || '').toUpperCase().trim();
@@ -244,6 +246,7 @@ async function getActiveAdmins() {
     const data = await getSheetData(MASTER_SHEET);
     const admins = [];
     for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
       const uname = (data[i][8] || '').replace('@', '').trim();
       const role = (data[i][9] || '').toUpperCase().trim();
       const status = (data[i][10] || '').toUpperCase().trim();
@@ -281,6 +284,7 @@ async function getWorkzoneMappings() {
 
   const mappings = [];
   for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
     const team = (data[i][teamColIdx] || '').trim();
     const wz = (data[i][wzColIdx] || '').trim();
     if (team && wz) mappings.push({ team, workzone: wz });
@@ -464,6 +468,7 @@ async function getProductivityData(dateFilterFn) {
   const closedIncidents = new Set();
   if (progresData) {
     for (let i = 1; i < progresData.length; i++) {
+      if (!progresData[i]) continue;
       const tanggal = (progresData[i][0] || '').trim();
       const incident = (progresData[i][1] || '').trim().toUpperCase();
       const d = parseIndonesianDate(tanggal);
@@ -474,6 +479,7 @@ async function getProductivityData(dateFilterFn) {
   const orderCols = orderData ? getOrderColumns(orderData) : null;
   if (orderData && orderCols) {
     for (let i = 1; i < orderData.length; i++) {
+      if (!orderData[i]) continue;
       const incident = (orderData[i][orderCols.incident] || '').trim();
       const teknisi = (orderData[i][orderCols.teknisi] || '').trim();
       const status = (orderData[i][orderCols.status] || '').toUpperCase().trim();
@@ -495,6 +501,7 @@ async function getProductivityData(dateFilterFn) {
   // 2. UNSPEC
   if (unspecData) {
     for (let i = 1; i < unspecData.length; i++) {
+      if (!unspecData[i]) continue;
       const tanggal = (unspecData[i][0] || '').trim();
       const teknisi = (unspecData[i][2] || '').trim();
       const serviceNo = (unspecData[i][7] || '').trim();
@@ -516,6 +523,7 @@ async function getProductivityData(dateFilterFn) {
   // 3. SQM
   if (sqmData) {
     for (let i = 1; i < sqmData.length; i++) {
+      if (!sqmData[i]) continue;
       const tanggal = (sqmData[i][0] || '').trim();
       const incident = (sqmData[i][1] || '').trim();
       const teknisi = (sqmData[i][2] || '').trim();
@@ -536,6 +544,7 @@ async function getProductivityData(dateFilterFn) {
   // 4. MANUAL GGN
   if (manualData) {
     for (let i = 1; i < manualData.length; i++) {
+      if (!manualData[i]) continue;
       const tanggal = (manualData[i][0] || '').trim();
       const teknisi = (manualData[i][1] || '').trim();
       const serviceNo = (manualData[i][4] || '').trim();
@@ -551,6 +560,7 @@ async function getProductivityData(dateFilterFn) {
   // 5. GAUL ASSURANCE
   if (gaulData) {
     for (let i = 1; i < gaulData.length; i++) {
+      if (!gaulData[i]) continue;
       const tanggal = (gaulData[i][0] || '').trim();
       const incident = (gaulData[i][1] || '').trim();
       const teknisi = (gaulData[i][2] || '').trim();
@@ -575,6 +585,7 @@ function getTeamConfig(masterData) {
   const config = new Map();
   if (!masterData || masterData.length < 3) return config;
   for (let i = 2; i < masterData.length; i++) {
+      if (!masterData[i]) continue;
     const uname = (masterData[i][8] || '').replace('@', '').toLowerCase().trim();
     const sektor = (masterData[i][11] || '').trim().toUpperCase();
     const status = (masterData[i][10] || '').trim().toUpperCase();
@@ -588,6 +599,7 @@ function getPiketSchedule(masterData) {
   const schedule = [];
   if (!masterData || masterData.length < 3) return schedule;
   for (let i = 2; i < masterData.length; i++) {
+      if (!masterData[i]) continue;
     const tanggal = (masterData[i][19] || '').trim();
     const sektor = (masterData[i][20] || '').trim().toUpperCase();
     const teknisi = (masterData[i][21] || '').trim();
@@ -733,6 +745,7 @@ async function autoFillTeknisi() {
     let filled = 0;
 
     for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
       const teknisi = (data[i][cols.teknisi] || '').trim();
       const status = (data[i][cols.status] || '').toUpperCase().trim();
       const workzone = (data[i][cols.workzone] || '').trim();
@@ -775,6 +788,7 @@ async function checkTTRAlerts() {
     let hasNewWarning = false;
 
     for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
       const incident = (data[i][cols.incident] || '').trim();
       const ttrStr = (data[i][cols.ttrCustomer] || '').trim();
       const workzone = (data[i][cols.workzone] || '').trim();
@@ -869,6 +883,7 @@ async function checkTTRAlerts() {
     // Cleanup: remove closed incidents from alert state
     const openIncidents = new Set();
     for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
       const st = (data[i][cols.status] || '').toUpperCase().trim();
       if (st === 'OPEN') openIncidents.add((data[i][cols.incident] || '').trim());
     }
@@ -899,6 +914,7 @@ async function buildSisaTicketReport() {
   let totalGamas = 0;
 
   for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
     const incident = (data[i][cols.incident] || '-').trim();
     const ttrCustomer = (data[i][cols.ttrCustomer] || '-').trim();
     const workzone = (data[i][cols.workzone] || '').trim();
@@ -1014,6 +1030,7 @@ bot.on('message', async (msg) => {
 
         // Cek duplikat incident
         for (let i = 1; i < orderData.length; i++) {
+      if (!orderData[i]) continue;
           const existingInc = (orderData[i][orderCols.incident] || '').trim().toUpperCase();
           if (existingInc === tiket.incident.toUpperCase()) {
             console.log(`⚠️ Duplicate incident ${tiket.incident} - skipping`);
@@ -1070,6 +1087,7 @@ bot.on('message', async (msg) => {
           try {
             const prevIncidents = [];
             for (let i = 1; i < orderData.length; i++) {
+      if (!orderData[i]) continue;
               const existingSN = (orderData[i][orderCols.incident ? 7 : 7] || '').trim(); // H = Service No
               const existingInc = (orderData[i][orderCols.incident] || '').trim();
               const existingDate = (orderData[i][0] || '').trim(); // A = Tanggal
@@ -1157,6 +1175,7 @@ bot.on('message', async (msg) => {
           const orderCols = getOrderColumns(orderData);
           const statusColLetter = String.fromCharCode(65 + orderCols.status);
           for (let i = 1; i < orderData.length; i++) {
+      if (!orderData[i]) continue;
             const incInOrder = (orderData[i][orderCols.incident] || '').trim().toUpperCase();
             if (incInOrder === parsed.incidentNo) {
               // Cek TTR untuk KAWAL TTR
@@ -1254,6 +1273,7 @@ bot.on('message', async (msg) => {
         let safeList = [];
 
         for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
           const incident = (data[i][cols.incident] || '').trim();
           const ttrStr = (data[i][cols.ttrCustomer] || '').trim();
           const workzone = (data[i][cols.workzone] || '').trim();
@@ -1345,6 +1365,7 @@ bot.on('message', async (msg) => {
         const materialNames = Object.keys(materialMap);
 
         for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
           materialColumns.forEach((colIdx, idx) => {
             materialMap[materialNames[idx]] += parseInt((data[i][colIdx] || '0').trim()) || 0;
           });
@@ -1580,6 +1601,7 @@ bot.on('message', async (msg) => {
         let incidents = [];
 
         for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
           const tanggal = (data[i][0] || '').trim();
           const teknisi = (data[i][14] || '-').trim();
           const incident = (data[i][1] || '').trim();
@@ -1593,6 +1615,7 @@ bot.on('message', async (msg) => {
 
         let comply = 0, notComply = 0;
         for (let i = 1; i < orderData.length; i++) {
+      if (!orderData[i]) continue;
           const inc = (orderData[i][1] || '').trim().toUpperCase();
           const kawal = (orderData[i][17] || '').trim().toUpperCase();
           if (incidents.includes(inc)) {
@@ -1696,6 +1719,7 @@ bot.on('message', async (msg) => {
         let grandTotal = 0;
 
         for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
           const tanggal = (data[i][0] || '').trim();
           const teknisi = (data[i][1] || '').trim();
           const serviceNo = (data[i][4] || '').trim();
@@ -1752,6 +1776,7 @@ bot.on('message', async (msg) => {
         // Cari tiket OPEN milik user berdasarkan username di kolom C
         const userTickets = [];
         for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
           const teknisi = (data[i][2] || '').trim(); // C = Teknisi
           const status = (data[i][9] || '').trim().toUpperCase(); // J = Status
           const incident = (data[i][1] || '').trim(); // B = Incident
@@ -1825,6 +1850,7 @@ bot.on('message', async (msg) => {
         try {
           const sqmData = await getSheetData(SQM_SHEET, false);
           for (let i = 1; i < sqmData.length; i++) {
+      if (!sqmData[i]) continue;
             const incInSqm = (sqmData[i][1] || '').trim().toUpperCase(); // B = Incident
             if (incInSqm === parsed.incidentNo) {
               await updateSheetCell(SQM_SHEET, `J${i + 1}`, 'CLOSE'); // J = Status
@@ -1863,6 +1889,7 @@ bot.on('message', async (msg) => {
         let grandTotal = 0;
 
         for (let i = 1; i < data.length; i++) {
+      if (!data[i]) continue;
           const tanggal = (data[i][0] || '').trim(); // A = Tanggal
           const incident = (data[i][1] || '').trim(); // B = Incident
           const teknisi = (data[i][2] || '').trim(); // C = Teknisi
