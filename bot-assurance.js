@@ -256,6 +256,7 @@ async function getActiveAdmins() {
 
 // === HELPER: Get workzone mappings from ORDER ASSURANCE (auto-detect columns) ===
 async function getWorkzoneMappings() {
+  const data = await getSheetData(ORDER_ASSURANCE_SHEET, false);
   if (!data || data.length < 2) return [];
 
   // Auto-detect MAPPING TEAM and WORKZONE columns from header
@@ -910,7 +911,7 @@ async function buildSisaTicketReport() {
       ticketsByTeam[cleanTeam].push({ incident, ttr: ttrCustomer, custType, hasilUkur });
       totalOpen++;
     } else if (status === 'GAMAS') {
-      const team = findMappingTeam(workzone, 'GAMAS', mappings) || workzone || '-';
+      const team = findMappingTeam(workzone, mappings) || workzone || '-';
       const cleanTeam = team.replace(/@@/g, '@');
       if (!gamasTickets[cleanTeam]) gamasTickets[cleanTeam] = [];
       gamasTickets[cleanTeam].push({ incident, ttr: ttrCustomer, custType, hasilUkur });
