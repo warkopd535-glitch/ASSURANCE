@@ -1952,7 +1952,7 @@ bot.on('message', async (msg) => {
           parsed.roset, parsed.rj45, parsed.lan, parsed.closeDesc, parsed.teknisi,
           inputTimestamp,
         ];
-        await withTimeout(appendSheetData(ASSURANCE_SHEET, row), 10000);
+        await withTimeout(appendSheetData(SQM_SHEET, row), 10000);
         cache.assuranceData = null;
 
         // Auto-close di SQM SA SIGLI
