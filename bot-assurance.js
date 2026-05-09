@@ -8,6 +8,11 @@ const SHEET_ID = process.env.SHEET_ID;
 const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID;
 let GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
 
+// Forum/Topic IDs (set these to route messages to specific topics)
+const TOPIC_ASSIGNED = process.env.TOPIC_ASSIGNED ? parseInt(process.env.TOPIC_ASSIGNED) : null;
+const TOPIC_CLOSE = process.env.TOPIC_CLOSE ? parseInt(process.env.TOPIC_CLOSE) : null;
+const TOPIC_KOORDINASI = process.env.TOPIC_KOORDINASI ? parseInt(process.env.TOPIC_KOORDINASI) : null;
+
 if (!TOKEN) { console.error('❌ TELEGRAM_TOKEN not set'); process.exit(1); }
 if (!SHEET_ID) { console.error('❌ SHEET_ID not set'); process.exit(1); }
 if (!GOOGLE_SERVICE_ACCOUNT_JSON) { console.error('❌ GOOGLE_SERVICE_ACCOUNT_JSON not set'); process.exit(1); }
@@ -846,7 +851,8 @@ async function checkTTRAlerts() {
         msg += `  👷 ${e.team}\n`;
       });
       if (adminTags) msg += `\ncc bg ${adminTags}`;
-      await sendTelegram(GROUP_CHAT_ID, msg);
+      const expiredOpts = TOPIC_ASSIGNED ? { message_thread_id: TOPIC_ASSIGNED } : {};
+      await sendTelegram(GROUP_CHAT_ID, msg, expiredOpts);
       console.log(`🔴 TTR EXPIRED alert: ${expiredList.length} tickets`);
     }
 
@@ -861,7 +867,8 @@ async function checkTTRAlerts() {
         msg += `   Teknisi: ${e.team}\n\n`;
       });
       if (adminTags) msg += `cc bg ${adminTags}`;
-      await sendTelegram(GROUP_CHAT_ID, msg);
+      const warningOpts = TOPIC_KOORDINASI ? { message_thread_id: TOPIC_KOORDINASI } : {};
+      await sendTelegram(GROUP_CHAT_ID, msg, warningOpts);
       console.log(`⚠️ TTR WARNING alert: ${warningList.length} tickets`);
 
       // DM ke setiap teknisi yang tiketnya mendekati expired
@@ -989,7 +996,8 @@ async function autoPostSisaTicket() {
   try {
     const report = await buildSisaTicketReport();
     if (report) {
-      await sendTelegram(GROUP_CHAT_ID, report);
+      const autoOpts = TOPIC_ASSIGNED ? { message_thread_id: TOPIC_ASSIGNED } : {};
+      await sendTelegram(GROUP_CHAT_ID, report, autoOpts);
       console.log('📊 Auto-post sisa ticket ke group');
     }
   } catch (error) {
@@ -1006,6 +1014,9 @@ bot.on('message', async (msg) => {
   const text = (msg.text || '').trim();
   const username = msg.from.username || '';
   const groupType = msg.chat.type;
+  // Forum/Topic support: extract thread ID if message is in a topic
+  const threadId = msg.message_thread_id || null;
+  const isForum = msg.chat.is_forum || false;
 
   if (!text) return;
 
@@ -1016,7 +1027,11 @@ bot.on('message', async (msg) => {
     if (msg.from.id) userChatIds[unameLower] = msg.from.id;
   }
 
-  console.log(`📨 [${groupType}] [@${username}] ${text.substring(0, 60)}`);
+  // Build reply options with thread support
+  const replyOpts = { reply_to_message_id: msgId };
+  if (threadId) replyOpts.message_thread_id = threadId;
+
+  console.log(`📨 [${groupType}${isForum ? '/forum' : ''}${threadId ? '/topic:' + threadId : ''}] [@${username}] ${text.substring(0, 60)}`);
 
   try {
     // ============================================================
@@ -1041,7 +1056,7 @@ bot.on('message', async (msg) => {
           const existingInc = (orderData[i][orderCols.incident] || '').trim().toUpperCase();
           if (existingInc === tiket.incident.toUpperCase()) {
             console.log(`⚠️ Duplicate incident ${tiket.incident} - skipping`);
-            return sendTelegram(chatId, `⚠️ Incident <b>${tiket.incident}</b> sudah ada di ORDER ASSURANCE.`, { reply_to_message_id: msgId });
+            return sendTelegram(chatId, `⚠️ Incident <b>${tiket.incident}</b> sudah ada di ORDER ASSURANCE.`, replyOpts);
           }
         }
 
@@ -1121,7 +1136,8 @@ bot.on('message', async (msg) => {
               gaulMsg += `👤 Customer: ${tiket.customerType}\n\n`;
               gaulMsg += `⚠️ Total gangguan: ${prevIncidents.length + 1}x untuk Service No ini\n\n`;
               if (adminTags) gaulMsg += `cc bg ${adminTags}`;
-              await sendTelegram(GROUP_CHAT_ID, gaulMsg);
+              const gaulOpts = TOPIC_KOORDINASI ? { message_thread_id: TOPIC_KOORDINASI } : {};
+              await sendTelegram(GROUP_CHAT_ID, gaulMsg, gaulOpts);
               console.log(`🔁 GAUL detected: ${tiket.serviceNo} (${prevIncidents.length + 1}x)`);
             }
           } catch (gaulErr) {
@@ -1134,10 +1150,10 @@ bot.on('message', async (msg) => {
         confirmMsg += `👷 <b>Teknisi:</b> ${mappedTeknisi}\n`;
         confirmMsg += `📍 <b>Workzone:</b> ${workzone}`;
 
-        return sendTelegram(chatId, confirmMsg, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, confirmMsg, replyOpts);
       } catch (err) {
         console.error('❌ Tiket Baru Error:', err.message);
-        return sendTelegram(chatId, `❌ Error menyimpan tiket: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error menyimpan tiket: ${err.message}`, replyOpts);
       }
     }
 
@@ -1149,14 +1165,14 @@ bot.on('message', async (msg) => {
     if (/^\/INPUT\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
 
         const inputText = text.replace(/^\/INPUT\s*/i, '').trim();
-        if (!inputText) return sendTelegram(chatId, '❌ Silakan kirim data assurance setelah /INPUT.', { reply_to_message_id: msgId });
+        if (!inputText) return sendTelegram(chatId, '❌ Silakan kirim data assurance setelah /INPUT.', replyOpts);
 
         const parsed = parseAssurance(inputText, username);
         const missing = ['incidentNo', 'closeDesc'].filter(f => !parsed[f]);
-        if (missing.length > 0) return sendTelegram(chatId, `❌ Field wajib: ${missing.join(', ')}`, { reply_to_message_id: msgId });
+        if (missing.length > 0) return sendTelegram(chatId, `❌ Field wajib: ${missing.join(', ')}`, replyOpts);
 
         // Simpan ke PROGRES ASSURANCE (termasuk timestamp di kolom P)
         const inputTimestamp = new Date().toLocaleString('id-ID', {
@@ -1237,10 +1253,10 @@ bot.on('message', async (msg) => {
         confirmMsg += `  • RJ 45: ${parsed.rj45 || '-'}\n`;
         confirmMsg += `  • LAN: ${parsed.lan || '-'}`;
 
-        return sendTelegram(chatId, confirmMsg, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, confirmMsg, replyOpts);
       } catch (err) {
         console.error('❌ /INPUT Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1250,15 +1266,15 @@ bot.on('message', async (msg) => {
     else if (/^\/sisa_ticket\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
 
         const response = await withTimeout(buildSisaTicketReport(), 10000);
-        if (!response) return sendTelegram(chatId, '<i>Tidak ada data</i>', { reply_to_message_id: msgId });
+        if (!response) return sendTelegram(chatId, '<i>Tidak ada data</i>', replyOpts);
 
-        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, response, replyOpts);
       } catch (err) {
         console.error('❌ /sisa_ticket Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1268,10 +1284,10 @@ bot.on('message', async (msg) => {
     else if (/^\/cek_ttr\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
 
         const data = await withTimeout(getSheetData(ORDER_ASSURANCE_SHEET, false), 10000);
-        if (!data || data.length < 2) return sendTelegram(chatId, '<i>Tidak ada data</i>', { reply_to_message_id: msgId });
+        if (!data || data.length < 2) return sendTelegram(chatId, '<i>Tidak ada data</i>', replyOpts);
 
         const cols = getOrderColumns(data);
         const mappings = await getWorkzoneMappings();
@@ -1347,10 +1363,10 @@ bot.on('message', async (msg) => {
         // SAFE
         response += `✅ <b>AMAN: ${safeList.length} tickets</b>`;
 
-        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, response, replyOpts);
       } catch (err) {
         console.error('❌ /cek_ttr Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1360,7 +1376,7 @@ bot.on('message', async (msg) => {
     else if (/^\/material_used\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
 
         const data = await withTimeout(getSheetData(ASSURANCE_SHEET), 10000);
         let materialMap = {
@@ -1386,10 +1402,10 @@ bot.on('message', async (msg) => {
           entries.forEach(([mat, count]) => { response += `📊 <b>${mat}</b> : ${count} unit\n`; });
         }
 
-        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, response, replyOpts);
       } catch (err) {
         console.error('❌ /material_used Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1399,7 +1415,7 @@ bot.on('message', async (msg) => {
     else if (/^\/rekap_hari\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
         const isAdmin = authResult.role === 'ADMIN';
         const today = getTodayJakarta();
         const dateFilter = d => d.day === today.day && d.month === today.month && d.year === today.year;
@@ -1437,7 +1453,7 @@ bot.on('message', async (msg) => {
             response += '\n';
           });
           response += `📋 <b>Total: ${grandClosed} closed | ${grandOpen} open</b>\n╚══════════════════════════════════╝`;
-          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, response, replyOpts);
         } else {
           let userReg = 0, userUns = 0, userSqm = 0, userMan = 0;
           for (const [, t] of Object.entries(teams)) {
@@ -1449,11 +1465,11 @@ bot.on('message', async (msg) => {
           const total = userReg + userUns + userSqm + userMan;
           let response = `╔══════════════════════════════════╗\n║  📊 <b>REKAP CLOSE - HARI INI</b>\n║  📅 ${todayStr} | @${username}\n╠══════════════════════════════════╣\n\n`;
           response += `📋 REGULER : ${userReg}\n📋 UNSPEC  : ${userUns}\n📋 SQM     : ${userSqm}\n📋 MANUAL  : ${userMan}\n\n📋 <b>Total: ${total} closed</b>\n╚══════════════════════════════════╝`;
-          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, response, replyOpts);
         }
       } catch (err) {
         console.error('❌ /rekap_hari Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1461,7 +1477,7 @@ bot.on('message', async (msg) => {
     else if (/^\/rekap_bulan\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
         const isAdmin = authResult.role === 'ADMIN';
         const today = getTodayJakarta();
         const dateFilter = d => d.month === today.month && d.year === today.year;
@@ -1494,7 +1510,7 @@ bot.on('message', async (msg) => {
             response += '\n';
           });
           response += `📋 <b>Total: ${grandClosed} closed</b>\n╚══════════════════════════════════╝`;
-          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, response, replyOpts);
         } else {
           let userReg = 0, userUns = 0, userSqm = 0, userMan = 0;
           for (const [, t] of Object.entries(teams)) {
@@ -1506,11 +1522,11 @@ bot.on('message', async (msg) => {
           const total = userReg + userUns + userSqm + userMan;
           let response = `╔══════════════════════════════════╗\n║  📊 <b>REKAP CLOSE - BULAN INI</b>\n║  📅 ${bulanStr} | @${username}\n╠══════════════════════════════════╣\n\n`;
           response += `📋 REGULER : ${userReg}\n📋 UNSPEC  : ${userUns}\n📋 SQM     : ${userSqm}\n📋 MANUAL  : ${userMan}\n\n📋 <b>Total: ${total} closed</b>\n╚══════════════════════════════════╝`;
-          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, response, replyOpts);
         }
       } catch (err) {
         console.error('❌ /rekap_bulan Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1518,7 +1534,7 @@ bot.on('message', async (msg) => {
     else if (/^\/rekap_tahun\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
         const isAdmin = authResult.role === 'ADMIN';
         const today = getTodayJakarta();
         const bulanNames = ['','Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
@@ -1565,7 +1581,7 @@ bot.on('message', async (msg) => {
             response += `📋 <b>Grand Total: ${grandTotal} tiket</b>\n`;
           }
           response += `╚══════════════════════════════════╝`;
-          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, response, replyOpts);
         } else {
           let userGrand = 0;
           let response = `╔══════════════════════════════════╗\n║  📊 <b>REKAP CLOSE - TAHUN ${today.year}</b>\n║  👤 @${username}\n╠══════════════════════════════════╣\n\n`;
@@ -1580,11 +1596,11 @@ bot.on('message', async (msg) => {
             response += `📋 <b>Grand Total: ${userGrand} tiket</b>\n`;
           }
           response += `╚══════════════════════════════════╝`;
-          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, response, replyOpts);
         }
       } catch (err) {
         console.error('❌ /rekap_tahun Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1594,12 +1610,12 @@ bot.on('message', async (msg) => {
     else if (/^\/REKAP_(JANUARI|FEBRUARI|MARET|APRIL|MEI|JUNI|JULI|AGUSTUS|SEPTEMBER|OKTOBER|NOVEMBER|DESEMBER)\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
 
         const bulanMatch = text.match(/^\/REKAP_(\w+)/i);
         const bulanName = bulanMatch[1].toLowerCase();
         const targetMonth = BULAN_ID[bulanName];
-        if (!targetMonth) return sendTelegram(chatId, '❌ Bulan tidak valid.', { reply_to_message_id: msgId });
+        if (!targetMonth) return sendTelegram(chatId, '❌ Bulan tidak valid.', replyOpts);
 
         const data = await withTimeout(getSheetData(ASSURANCE_SHEET), 10000);
         const orderData = await withTimeout(getSheetData(ORDER_ASSURANCE_SHEET), 10000);
@@ -1648,10 +1664,10 @@ bot.on('message', async (msg) => {
           response += `✅ COMPLY: ${comply} | ❌ NOT COMPLY: ${notComply}`;
         }
 
-        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, response, replyOpts);
       } catch (err) {
         console.error('❌ /REKAP_BULAN Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1661,11 +1677,11 @@ bot.on('message', async (msg) => {
     else if (/^\/unspec\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
 
         const inputText = text.replace(/^\/unspec\s*/i, '').trim();
         if (!inputText) {
-          return sendTelegram(chatId, `❌ Format:\n/unspec\nCLOSE: deskripsi\nSERVICE NO: 111149103305\nWORKZONE: SLG`, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, `❌ Format:\n/unspec\nCLOSE: deskripsi\nSERVICE NO: 111149103305\nWORKZONE: SLG`, replyOpts);
         }
 
         const closeMatch = inputText.match(/CLOSE\s*:\s*(.+)/i);
@@ -1673,7 +1689,7 @@ bot.on('message', async (msg) => {
         const wzMatch = inputText.match(/WORKZONE\s*:\s*(.+)/i);
 
         if (!closeMatch || !svcMatch) {
-          return sendTelegram(chatId, `❌ Format:\n/unspec\nCLOSE: deskripsi\nSERVICE NO: 111149103305\nWORKZONE: SLG`, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, `❌ Format:\n/unspec\nCLOSE: deskripsi\nSERVICE NO: 111149103305\nWORKZONE: SLG`, replyOpts);
         }
 
         const closeDesc = closeMatch[1].trim();
@@ -1699,10 +1715,10 @@ bot.on('message', async (msg) => {
         confirmMsg += `📝 Close: ${closeDesc}\n`;
         confirmMsg += `📊 Status: CLOSE`;
 
-        return sendTelegram(chatId, confirmMsg, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, confirmMsg, replyOpts);
       } catch (err) {
         console.error('❌ /unspec Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1712,11 +1728,11 @@ bot.on('message', async (msg) => {
     else if (/^\/MANUAL\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
 
         const inputText = text.replace(/^\/MANUAL\s*/i, '').trim();
         if (!inputText) {
-          return sendTelegram(chatId, `❌ Format tidak sesuai. Gunakan format:\n\n/MANUAL\nCLOSE: deskripsi perbaikan\nSERVICE NO: 111149103305\nWORKZONE: SLG`, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, `❌ Format tidak sesuai. Gunakan format:\n\n/MANUAL\nCLOSE: deskripsi perbaikan\nSERVICE NO: 111149103305\nWORKZONE: SLG`, replyOpts);
         }
 
         const closeMatch = inputText.match(/CLOSE\s*:\s*(.+)/i);
@@ -1724,7 +1740,7 @@ bot.on('message', async (msg) => {
         const wzMatch = inputText.match(/WORKZONE\s*:\s*(.+)/i);
 
         if (!closeMatch || !svcMatch || !wzMatch) {
-          return sendTelegram(chatId, `❌ Format tidak sesuai. Gunakan format:\n\n/MANUAL\nCLOSE: deskripsi perbaikan\nSERVICE NO: 111149103305\nWORKZONE: SLG`, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, `❌ Format tidak sesuai. Gunakan format:\n\n/MANUAL\nCLOSE: deskripsi perbaikan\nSERVICE NO: 111149103305\nWORKZONE: SLG`, replyOpts);
         }
 
         const closeDesc = closeMatch[1].trim();
@@ -1753,10 +1769,10 @@ bot.on('message', async (msg) => {
         confirmMsg += `📝 Close: ${closeDesc}\n`;
         confirmMsg += `📊 Status: CLOSE`;
 
-        return sendTelegram(chatId, confirmMsg, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, confirmMsg, replyOpts);
       } catch (err) {
         console.error('❌ /MANUAL Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1766,7 +1782,7 @@ bot.on('message', async (msg) => {
     else if (/^\/REKAP_MANUAL\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
 
         const isAdmin = authResult.role === 'ADMIN';
         const data = await withTimeout(getSheetData(MANUAL_GGN_SHEET), 10000);
@@ -1813,10 +1829,10 @@ bot.on('message', async (msg) => {
           response += `📋 <b>Grand Total: ${grandTotal} tiket</b>`;
         }
 
-        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, response, replyOpts);
       } catch (err) {
         console.error('❌ /REKAP_MANUAL Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1826,11 +1842,11 @@ bot.on('message', async (msg) => {
     else if (/^\/REKAP_UNSPEC\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
         const isAdmin = authResult.role === 'ADMIN';
 
         const data = await withTimeout(getSheetData(UNSPEC_SHEET), 10000);
-        if (!data || data.length < 2) return sendTelegram(chatId, '<i>Tidak ada data UNSPEC</i>', { reply_to_message_id: msgId });
+        if (!data || data.length < 2) return sendTelegram(chatId, '<i>Tidak ada data UNSPEC</i>', replyOpts);
 
         const today = getTodayJakarta();
         const bulanNames = ['','Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
@@ -1872,10 +1888,10 @@ bot.on('message', async (msg) => {
           response += `📋 <b>Grand Total: ${grandTotal} tiket</b>\n`;
         }
         response += `╚══════════════════════════════════╝`;
-        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, response, replyOpts);
       } catch (err) {
         console.error('❌ /REKAP_UNSPEC Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1885,10 +1901,10 @@ bot.on('message', async (msg) => {
     else if (/^\/TICKET_SQM\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
 
         const data = await withTimeout(getSheetData(SQM_SHEET, false), 10000);
-        if (!data || data.length < 2) return sendTelegram(chatId, '<i>Tidak ada data SQM</i>', { reply_to_message_id: msgId });
+        if (!data || data.length < 2) return sendTelegram(chatId, '<i>Tidak ada data SQM</i>', replyOpts);
 
         // Cari tiket OPEN milik user berdasarkan username di kolom C
         const userTickets = [];
@@ -1906,7 +1922,7 @@ bot.on('message', async (msg) => {
         }
 
         if (userTickets.length === 0) {
-          return sendTelegram(chatId, `📋 Ticket SQM Anda (@${username}):\n\n✅ Tidak ada tiket OPEN saat ini.`, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, `📋 Ticket SQM Anda (@${username}):\n\n✅ Tidak ada tiket OPEN saat ini.`, replyOpts);
         }
 
         const numEmoji = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
@@ -1924,10 +1940,10 @@ bot.on('message', async (msg) => {
           timestamp: Date.now(),
         };
 
-        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, response, replyOpts);
       } catch (err) {
         console.error('❌ /TICKET_SQM Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1937,14 +1953,14 @@ bot.on('message', async (msg) => {
     else if (/^\/SQM\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
 
         const inputText = text.replace(/^\/SQM\s*/i, '').trim();
-        if (!inputText) return sendTelegram(chatId, '❌ Silakan kirim data setelah /SQM.', { reply_to_message_id: msgId });
+        if (!inputText) return sendTelegram(chatId, '❌ Silakan kirim data setelah /SQM.', replyOpts);
 
         const parsed = parseAssurance(inputText, username);
         const missing = ['incidentNo', 'closeDesc'].filter(f => !parsed[f]);
-        if (missing.length > 0) return sendTelegram(chatId, `❌ Field wajib: ${missing.join(', ')}`, { reply_to_message_id: msgId });
+        if (missing.length > 0) return sendTelegram(chatId, `❌ Field wajib: ${missing.join(', ')}`, replyOpts);
 
         // Simpan ke PROGRES ASSURANCE
         const inputTimestamp = new Date().toLocaleString('id-ID', {
@@ -1982,10 +1998,10 @@ bot.on('message', async (msg) => {
 
         let confirmMsg = `✅ Data SQM berhasil disimpan!\n\nClose: ${parsed.closeDesc}`;
 
-        return sendTelegram(chatId, confirmMsg, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, confirmMsg, replyOpts);
       } catch (err) {
         console.error('❌ /SQM Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -1995,7 +2011,7 @@ bot.on('message', async (msg) => {
     else if (/^\/REKAP_SQM\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
 
         const isAdmin = authResult.role === 'ADMIN';
         const data = await withTimeout(getSheetData(SQM_SHEET, false), 10000);
@@ -2046,10 +2062,10 @@ bot.on('message', async (msg) => {
           response += `📋 <b>Grand Total: ${grandTotal} tiket</b>`;
         }
 
-        return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, response, replyOpts);
       } catch (err) {
         console.error('❌ /REKAP_SQM Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -2062,13 +2078,13 @@ bot.on('message', async (msg) => {
         // Expired after 5 minutes
         if (Date.now() - pending.timestamp > 5 * 60 * 1000) {
           delete global.pendingPickup[chatId + '_' + username];
-          return sendTelegram(chatId, '❌ Sesi Pick Up sudah expired. Kirim /TICKET_SQM lagi.', { reply_to_message_id: msgId });
+          return sendTelegram(chatId, '❌ Sesi Pick Up sudah expired. Kirim /TICKET_SQM lagi.', replyOpts);
         }
 
         const incidentNo = text.trim().toUpperCase();
         const ticket = pending.tickets.find(t => t.incident.toUpperCase() === incidentNo);
         if (!ticket) {
-          return sendTelegram(chatId, `❌ Incident ${incidentNo} tidak ditemukan di list tiket Anda.`, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, `❌ Incident ${incidentNo} tidak ditemukan di list tiket Anda.`, replyOpts);
         }
 
         // Update kolom Q (index 16) = PICK UP di SQM SA SIGLI
@@ -2082,10 +2098,10 @@ bot.on('message', async (msg) => {
         confirmMsg += `📍 Device: ${ticket.deviceName}\n`;
         confirmMsg += `📊 Progres: PICK UP`;
 
-        return sendTelegram(chatId, confirmMsg, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, confirmMsg, replyOpts);
       } catch (err) {
         console.error('❌ Pick Up Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -2095,7 +2111,7 @@ bot.on('message', async (msg) => {
     else if (/^\/rekap_piket\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username, ['USER', 'ADMIN']);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
         const isAdmin = authResult.role === 'ADMIN';
         const today = getTodayJakarta();
         const bulanNames = ['','Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
@@ -2149,7 +2165,7 @@ bot.on('message', async (msg) => {
             response += `📋 <b>Total: ${totalDays} hari piket | ${totalClosed} tiket</b>\n`;
           }
           response += `╚══════════════════════════════════╝`;
-          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, response, replyOpts);
         } else {
           let response = `╔══════════════════════════════════╗\n║  📅 <b>REKAP PIKET - ${bulanStr.toUpperCase()}</b>\n║  👤 @${username}\n╠══════════════════════════════════╣\n\n`;
           let found = false;
@@ -2169,11 +2185,11 @@ bot.on('message', async (msg) => {
           }
           if (!found) response += '<i>Tidak ada jadwal piket untuk Anda bulan ini</i>\n';
           response += `╚══════════════════════════════════╝`;
-          return sendTelegram(chatId, response, { reply_to_message_id: msgId });
+          return sendTelegram(chatId, response, replyOpts);
         }
       } catch (err) {
         console.error('❌ /rekap_piket Error:', err.message);
-        return sendTelegram(chatId, `❌ Error: ${err.message}`, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, `❌ Error: ${err.message}`, replyOpts);
       }
     }
 
@@ -2181,7 +2197,11 @@ bot.on('message', async (msg) => {
     // /chatid - Get chat ID (untuk setup GROUP_CHAT_ID)
     // ============================================================
     else if (/^\/chatid\b/i.test(text)) {
-      return sendTelegram(chatId, `📍 <b>Chat ID:</b> <code>${chatId}</code>\n<b>Type:</b> ${msg.chat.type}`, { reply_to_message_id: msgId });
+      let info = `📍 <b>Chat ID:</b> <code>${chatId}</code>\n<b>Type:</b> ${msg.chat.type}`;
+      if (isForum) info += `\n<b>Forum:</b> Yes ✅`;
+      if (threadId) info += `\n<b>Topic ID:</b> <code>${threadId}</code>`;
+      info += `\n\n💡 <i>Kirim /chatid di setiap topik untuk mendapatkan Topic ID masing-masing.</i>`;
+      return sendTelegram(chatId, info, replyOpts);
     }
 
     // ============================================================
@@ -2190,7 +2210,7 @@ bot.on('message', async (msg) => {
     else if (/^\/(help|start)\b/i.test(text)) {
       try {
         const authResult = await checkAuthorization(username);
-        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, { reply_to_message_id: msgId });
+        if (!authResult.authorized) return sendTelegram(chatId, authResult.message, replyOpts);
 
         const helpMsg = `🤖 <b>Bot Assurance</b>
 
@@ -2225,16 +2245,16 @@ WORKZONE: SLG
 • Auto-fill teknisi & TTR monitoring
 • Auto-close & deteksi GAUL
 • Weekday=TEAM | Weekend=PIKET`;
-        return sendTelegram(chatId, helpMsg, { reply_to_message_id: msgId });
+        return sendTelegram(chatId, helpMsg, replyOpts);
       } catch (err) {
         console.error('❌ /help Error:', err.message);
-        return sendTelegram(chatId, '❌ Terjadi kesalahan.', { reply_to_message_id: msgId });
+        return sendTelegram(chatId, '❌ Terjadi kesalahan.', replyOpts);
       }
     }
 
   } catch (err) {
     console.error('Error:', err.message);
-    sendTelegram(chatId, '❌ Terjadi kesalahan sistem.', { reply_to_message_id: msgId });
+    sendTelegram(chatId, '❌ Terjadi kesalahan sistem.', replyOpts);
   }
 });
 
