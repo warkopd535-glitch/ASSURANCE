@@ -261,36 +261,43 @@ async function getActiveAdmins() {
 
 // === HELPER: Get workzone mappings from ORDER ASSURANCE (auto-detect columns) ===
 async function getWorkzoneMappings() {
-  const data = await getSheetData(ORDER_ASSURANCE_SHEET, false);
-  if (!data || data.length < 2) return [];
+  const data = await getSheetData(MASTER_SHEET, false);
+  if (!data || data.length < 3) return [];
 
-  // Auto-detect MAPPING TEAM and WORKZONE columns from header
+  // Auto-detect columns from MASTER header
   const header = data[0] || [];
-  let teamColIdx = -1;
-  let wzColIdx = -1;
+  let teknisiIdx = -1, mappingTeamIdx = -1, teamIdx = -1, wzIdx = -1;
 
   for (let c = 0; c < header.length; c++) {
     const h = (header[c] || '').toUpperCase().trim();
-    if (h.includes('MAPPING') && h.includes('TEAM')) teamColIdx = c;
-    // Only match WORKZONE columns after column 10 (to skip main WORKZONE at col E)
-    if (c > 10 && h.includes('WORKZONE')) wzColIdx = c;
+    if (c >= 20) {
+      if (h === 'TEKNISI' && teknisiIdx === -1) teknisiIdx = c;
+      if ((h.includes('MAPPING') && h.includes('TEAM')) || h === 'MAPPING TEAM') mappingTeamIdx = c;
+      if (h === 'TEAM' && teamIdx === -1) teamIdx = c;
+      if (h === 'WORKZONE' && wzIdx === -1) wzIdx = c;
+    }
   }
 
-  // Fallback to Q(16) and R(17) if not found
-  if (teamColIdx === -1) teamColIdx = 16;
-  if (wzColIdx === -1) wzColIdx = teamColIdx + 1;
+  // Fallback to W(22), X(23), Y(24), Z(25)
+  if (teknisiIdx === -1) teknisiIdx = 22;
+  if (mappingTeamIdx === -1) mappingTeamIdx = 23;
+  if (teamIdx === -1) teamIdx = 24;
+  if (wzIdx === -1) wzIdx = 25;
 
-  console.log(`📍 Mapping columns detected: MAPPING TEAM=col ${teamColIdx}, WORKZONE=col ${wzColIdx}`);
+  console.log(`📍 MASTER mapping: TEKNISI=${teknisiIdx}, MAPPING_TEAM=${mappingTeamIdx}, TEAM=${teamIdx}, WORKZONE=${wzIdx}`);
 
   const mappings = [];
-  for (let i = 1; i < data.length; i++) {
-      if (!data[i]) continue;
-    const team = (data[i][teamColIdx] || '').trim();
-    const wz = (data[i][wzColIdx] || '').trim();
-    if (team && wz) mappings.push({ team, workzone: wz });
+  for (let i = 2; i < data.length; i++) {
+    if (!data[i]) continue;
+    const mappingTeam = (data[i][mappingTeamIdx] || '').trim();
+    const teamName = (data[i][teamIdx] || '').trim();
+    const wz = (data[i][wzIdx] || '').trim();
+    if (mappingTeam && wz) {
+      mappings.push({ team: mappingTeam, teamName, workzone: wz });
+    }
   }
 
-  console.log(`📍 Found ${mappings.length} workzone mappings`);
+  console.log(`📍 Found ${mappings.length} workzone mappings from MASTER`);
 
   // Remove duplicates
   const seen = new Set();
@@ -307,7 +314,7 @@ function findMappingTeam(workzone, mappings) {
   if (!workzone) return null;
   for (const mapping of mappings) {
     if (mapping.workzone.toUpperCase() === 'ALL') continue;
-    const zones = mapping.workzone.split(/[&,]/).map(z => z.trim().toUpperCase());
+    const zones = mapping.workzone.split(/[\s&,]+/).map(z => z.trim().toUpperCase()).filter(z => z);
     if (zones.includes(workzone.toUpperCase())) return mapping.team;
   }
   const allMap = mappings.find(m => m.workzone.toUpperCase() === 'ALL');
